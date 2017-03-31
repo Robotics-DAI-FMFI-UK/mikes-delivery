@@ -2,7 +2,7 @@ CC=gcc
 PROG=mikes
 SRCS=mikes.c \
      public_relations.c \
-     range_sensor.c \
+     lidar.c \
      mikes_logs.c \
      navigation.c \
      gui.c \

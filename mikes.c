@@ -5,7 +5,8 @@
 #include <string.h>
 
 #include "public_relations.h"
-#include "range_sensor.h"
+//#include "range_sensor.h"
+#include "lidar.h"
 #include "mikes_logs.h"
 #include "navigation.h"
 #include "gui.h"
@@ -47,7 +48,8 @@ int main(int argc, char **argv)
   init_mikes_logs();
   init_public_relations();
   init_base_module();
-  init_range_sensor();
+  //init_range_sensor();
+  init_lidar();
   init_navigation();
   init_ncurses_control();
 
