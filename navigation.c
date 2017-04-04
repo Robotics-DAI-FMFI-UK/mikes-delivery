@@ -30,7 +30,7 @@ void *navigation_thread(void *arg)
     while (program_runs)
     {
         get_base_data(&base_data);
-        get_range_segments(&segments, 180*4, 145, 350);
+//        get_range_segments(&segments, 180*4, 145, 350);
         usleep(100000);
     }
 

@@ -7,7 +7,7 @@
 #define MAX_LIDAR_DATA_COUNT 720
 
 extern pthread_mutex_t lidar_lock;
-extern int *lidar_data;
+//extern int *lidar_data;
 
 void init_lidar();
 void get_lidar_data(int* buffer);

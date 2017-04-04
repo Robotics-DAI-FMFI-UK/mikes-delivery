@@ -4,6 +4,8 @@
 #include <time.h>
 #include <math.h>
 
+#include "/usr/local/rplidar/sdk/sdk/include/rplidar.h"
+
 extern "C" {
 	
 #include "mikes.h"
