@@ -3,8 +3,9 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <unistd.h>
 
-#include "/usr/local/rplidar/sdk/sdk/include/rplidar.h"
+#include <rplidar.h>
 
 extern "C" {
 	
@@ -17,13 +18,7 @@ extern "C" {
 #define LIDAR_PORT "/dev/ttyUSB1"
 #define LIDAR_BAUD_RATE 115200
 
-/*
-typedef struct _rplidar_response_measurement_node_t {
-    _u8    sync_quality;      // syncbit:1;syncbit_inverse:1;quality:6;
-    _u16   angle_q6_checkbit; // check_bit:1;angle_q6:15;
-    _u16   distance_q2;
-} __attribute__((packed)) rplidar_response_measurement_node_t;
-*/
+using namespace rp::standalone::rplidar;
 
 pthread_mutex_t lidar_lock;
 rplidar_response_measurement_node_t *lidar_data;
@@ -62,7 +57,7 @@ void connect_lidar()
                 // you can check the detailed failure reason
                 mikes_log(ML_ERR, "Error, operation time out");
             } else {
-				mikes_log(ML_ERR, "Error, unexpected error ", op_result);
+				mikes_log_val(ML_ERR, "Error, unexpected error ", op_result);
                 // other unexpected result
             }
             break;
@@ -78,16 +73,16 @@ void connect_lidar()
                 break;
             case RPLIDAR_STATUS_WARNING:
                 mikes_log(ML_INFO, "RPLidar health status : Warning.");
-				mikes_log(ML_INFO, "lidar errorcode: ", healthinfo.error_code);
+				mikes_log_val(ML_INFO, "lidar errorcode: ", healthinfo.error_code);
                 break;
             case RPLIDAR_STATUS_ERROR:
                 mikes_log(ML_INFO, "RPLidar health status : Error.");
-				mikes_log(ML_INFO, "lidar errorcode: ", healthinfo.error_code);
+				mikes_log_val(ML_INFO, "lidar errorcode: ", healthinfo.error_code);
                 break;
             }
 
         } else {
-            mikes_log(ML_ERR, "Error, cannot retrieve the lidar health code: ", op_result);
+            mikes_log_val(ML_ERR, "Error, cannot retrieve the lidar health code: ", op_result);
             break;
         }
 
@@ -126,16 +121,16 @@ void *lidar_thread(void *args)
 			drv->ascendScanData(local_data, local_data_count);
 
 		} else {
-        mikes_log(ML_ERR, "lidar error code: ", ans);
+        mikes_log_val(ML_ERR, "lidar error code: ", ans);
 		}
 		
         pthread_mutex_lock(&lidar_lock);
-        for (int i = 0; i < local_data_count; ++i) {
+        for (size_t i = 0; i < local_data_count; ++i) {
             lidar_data[i].sync_quality = local_data[i].sync_quality;           // syncbit:1;syncbit_inverse:1;quality:6;
             lidar_data[i].angle_q6_checkbit = local_data[i].angle_q6_checkbit; // check_bit:1;angle_q6:15;
             lidar_data[i].distance_q2 = local_data[i].distance_q2;
-            lidar_data_count = local_data_count;
-        }
+        }        
+        lidar_data_count = local_data_count;
         pthread_mutex_unlock(&lidar_lock);
         usleep(40000);
     }
@@ -153,8 +148,8 @@ void *lidar_thread(void *args)
 void init_lidar()
 {
     pthread_t t;
-    lidar_data = (int *) malloc(sizeof(int) * MAX_LIDAR_DATA_COUNT);
-    local_data = (int *) malloc(sizeof(rplidar_response_measurement_node_t) * MAX_LIDAR_DATA_COUNT);
+    lidar_data = (rplidar_response_measurement_node_t *) malloc(sizeof(int) * MAX_LIDAR_DATA_COUNT);
+    local_data = (rplidar_response_measurement_node_t *) malloc(sizeof(rplidar_response_measurement_node_t) * MAX_LIDAR_DATA_COUNT);
     if ((lidar_data == 0) || (local_data == 0) )
     {
       perror("mikes:lidar");
@@ -171,26 +166,37 @@ void init_lidar()
     else threads_running_add(1);
 }
 
-int get_lidar_data(int* buffer)
+size_t get_lidar_data(rplidar_response_measurement_node_t *buffer)
 {
     pthread_mutex_lock(&lidar_lock);
-    memcpy(buffer, lidar_data, sizeof(int) * lidar_data_count);
-    int count = lidar_data_count;
+      for (size_t i = 0; i < local_data_count; ++i) {
+            buffer[i].sync_quality = lidar_data[i].sync_quality;           // syncbit:1;syncbit_inverse:1;quality:6;
+            buffer[i].angle_q6_checkbit = lidar_data[i].angle_q6_checkbit; // check_bit:1;angle_q6:15;
+            buffer[i].distance_q2 = lidar_data[i].distance_q2;
+      }            
+      //size_t buffer_data_count;
+      //memcpy(buffer, lidar_data, sizeof(int) * lidar_data_count);
     pthread_mutex_unlock(&lidar_lock);
-    return count;
+    return lidar_data_count;
 }
 
 
+//fixme
 int ray2azimuth(int ray)
 {
-  return (360 + (TOTAL_ANGLE_DEG / 2 - ray / SIZE_OF_ONE_DEG)) % 360;
+  //return (360 + (TOTAL_ANGLE_DEG / 2 - ray / SIZE_OF_ONE_DEG)) % 360;
+  return 1;
 }
 
+//fixme
 int azimuth2ray(int alpha)
 {
+/*
   if (360 - alpha <= TOTAL_ANGLE_DEG / 2) alpha -= 360;
   if (alpha < -TOTAL_ANGLE_DEG / 2) alpha = -TOTAL_ANGLE_DEG / 2;
   else if (alpha > TOTAL_ANGLE_DEG / 2) alpha = TOTAL_ANGLE_DEG / 2;
   return lidar_data_count / 2 - alpha * SIZE_OF_ONE_DEG;
+*/
+  return 1;
 }
 

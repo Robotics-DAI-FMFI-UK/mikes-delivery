@@ -11,7 +11,7 @@
 
 #include "mikes.h"
 #include "mikes_logs.h"
-#include "range_sensor.h"
+#include "lidar.h"
 #include "base_module.h"
 #include "gui.h"
 
@@ -35,14 +35,17 @@ void gui_shutdown();
 
 const int minx = 1, miny = 1, maxx = 8, maxy = 8;
 
-static int ranges[RANGE_DATA_COUNT];
-static segments_type segments;
+//fixme
+//static int ranges[RANGE_DATA_COUNT];
+//static segments_type segments;
 
 static double guiWidth = 600;
 static double guiHeight = 600;
 
+//fixme
 void draw_ray(int i, int ray_type)
 {
+/*
     int x = (int)(-ranges[i] / 8000.0 * guiWidth * 0.45 * sin(i * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
     int y = (int)(ranges[i] / 8000.0 * guiWidth * 0.45 * cos(i * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiHeight / 2);
 
@@ -57,10 +60,13 @@ void draw_ray(int i, int ray_type)
     cairo_set_source_rgb(gui, 1, 0.3, 0.3);
     cairo_arc(gui, x, guiHeight - y, 2, 0, 2 * M_PI);
     cairo_stroke(gui);
+*/
 }
 
+//fixme
 void draw_segment(int ray1, int ray2)
 {
+/*
     int x1 = (int)(-ranges[ray1] / 8000.0 * guiWidth * 0.45 * sin(ray1 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
     int y1 = (int)(ranges[ray1] / 8000.0 * guiWidth * 0.45 * cos(ray1 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiHeight / 2);
     int x2 = (int)(-ranges[ray2] / 8000.0 * guiWidth * 0.45 * sin(ray2 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
@@ -69,6 +75,7 @@ void draw_segment(int ray1, int ray2)
     cairo_set_source_rgb(gui, 1, 1, 0.5);
     cairo_rectangle(gui, x2, guiHeight - y2, abs(x2 - x1), abs(y2 - y1));
     cairo_stroke(gui);
+*/
 }
 
 void *gui_thread(void *arg)
@@ -86,14 +93,17 @@ void *gui_thread(void *arg)
         get_base_data(&base_data);
         disp_counter = 0;
         // LASER
+//fixme
+/*
         get_range_data(ranges);
         get_range_segments(&segments, 180*4, 145, 280);
-
+*/
         cairo_push_group(gui);
         cairo_set_source_rgb(gui, 1, 1, 1);
         cairo_paint(gui);
         cairo_set_line_width(gui, 2);
-
+//fixme
+/*
         for (int i = 0; i < RANGE_DATA_COUNT; i++)
         {
           if (ranges[i] > MAX_DISTANCE) ranges[i] = MAX_DISTANCE;
@@ -106,6 +116,7 @@ void *gui_thread(void *arg)
         if (get_current_azimuth() != NO_AZIMUTH)
           draw_ray(azimuth2ray(get_current_azimuth() - base_data.heading), RAY_AZIMUTH_TYPE);
 
+*/
         cairo_pop_group_to_source(gui);
         cairo_paint(gui);
         cairo_surface_flush(gui_surface);

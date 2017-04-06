@@ -49,7 +49,7 @@ int main(int argc, char **argv)
   init_public_relations();
   init_base_module();
   //init_range_sensor();
-  init_lidar();
+//  init_lidar();
   init_navigation();
   init_ncurses_control();
 

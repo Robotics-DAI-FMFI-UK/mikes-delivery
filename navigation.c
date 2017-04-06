@@ -5,7 +5,7 @@
 
 #include "mikes.h"
 #include "mikes_logs.h"
-#include "range_sensor.h"
+#include "lidar.h"
 #include "base_module.h"
 #include "util.h"
 
@@ -13,25 +13,49 @@
 
 static short original_heading;
 
+void debug_navigation()
+{
+    while(1)
+    {
+        set_motor_speeds(30, 30);
+        sleep(2);
+        set_motor_speeds(-30, -30);
+        sleep(2);
+        stop_now();
+        sleep(2);
+    }
+}
+
+
 void *navigation_thread(void *arg)
 {
     base_data_type base_data;
     sleep(3);
+
+    rplidar_response_measurement_node_t lidar_nav_data;
+//    size_t lidar_nav_data_count;
     get_base_data(&base_data);
     original_heading = base_data.heading;
     mikes_log_val(ML_INFO, "original heading: ", original_heading);
 
-    static segments_type segments;
     reset_counters();
+    
+    //debug_navigation();
 
-    while (!start_automatically) 
-      usleep(10000);
-
+    set_motor_speeds(10,10);
+    follow_azimuth(original_heading);
+    mikes_log(ML_INFO, "navigate: put");
+    //while (!start_automatically) 
+    //  usleep(10000);
+    int ii = 0;
     while (program_runs)
     {
-        get_base_data(&base_data);
-//        get_range_segments(&segments, 180*4, 145, 350);
-        usleep(100000);
+      get_base_data(&base_data);
+      if (ii == 30) stop_now();
+//      lidar_nav_data_count = get_lidar_data(&lidar_nav_data);
+//      printf("sum of beams: %d\n", lidar_nav_data_count);
+      usleep(100000);
+      ++ii;
     }
 
     mikes_log(ML_INFO, "navigation quits.");
