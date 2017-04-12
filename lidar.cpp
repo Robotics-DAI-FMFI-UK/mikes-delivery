@@ -15,14 +15,14 @@ extern "C" {
 
 }
 
-#define LIDAR_PORT "/dev/ttyUSB1"
+#define LIDAR_PORT "/dev/lidar"
 #define LIDAR_BAUD_RATE 115200
 
 using namespace rp::standalone::rplidar;
 
-pthread_mutex_t lidar_lock;
-rplidar_response_measurement_node_t *lidar_data;
-size_t lidar_data_count;
+static pthread_mutex_t lidar_lock;
+static rplidar_response_measurement_node_t *lidar_data;
+static size_t lidar_data_count;
 
 static RPlidarDriver *drv;
 
@@ -105,10 +105,19 @@ void *lidar_thread(void *args)
 {
 	while (program_runs)
     {
-
-		if (IS_FAIL(drv->startScan())) 
-		{
-			mikes_log(ML_ERR, "Error, cannot start the scan operation.");
+		int erri = 0;
+		while (erri < 30) {
+			if (IS_FAIL(drv->startScan())) 
+			{
+				mikes_log_val(ML_ERR, "Error, cannot start the scan operation. Trying again.", erri);
+				++erri;
+				usleep(50000);
+			} else {
+				break;
+			}
+		}
+		if (erri == 30) { 
+			mikes_log(ML_ERR, "Error, cannot start the scan operation. End.");
 			break;
 		}
 
@@ -125,14 +134,10 @@ void *lidar_thread(void *args)
 		}
 		
         pthread_mutex_lock(&lidar_lock);
-        for (size_t i = 0; i < local_data_count; ++i) {
-            lidar_data[i].sync_quality = local_data[i].sync_quality;           // syncbit:1;syncbit_inverse:1;quality:6;
-            lidar_data[i].angle_q6_checkbit = local_data[i].angle_q6_checkbit; // check_bit:1;angle_q6:15;
-            lidar_data[i].distance_q2 = local_data[i].distance_q2;
-        }        
+        memcpy(lidar_data, local_data, local_data_count * sizeof(rplidar_response_measurement_node_t));
         lidar_data_count = local_data_count;
         pthread_mutex_unlock(&lidar_lock);
-        usleep(40000);
+        usleep(45000);
     }
 
     drv->stop();
@@ -140,6 +145,9 @@ void *lidar_thread(void *args)
 
     RPlidarDriver::DisposeDriver(drv);
 
+    free(lidar_data);
+    free(local_data);
+    
     mikes_log(ML_INFO, "lidar quits.");
     threads_running_add(-1);
     return 0;
@@ -148,7 +156,7 @@ void *lidar_thread(void *args)
 void init_lidar()
 {
     pthread_t t;
-    lidar_data = (rplidar_response_measurement_node_t *) malloc(sizeof(int) * MAX_LIDAR_DATA_COUNT);
+    lidar_data = (rplidar_response_measurement_node_t *) malloc(sizeof(rplidar_response_measurement_node_t) * MAX_LIDAR_DATA_COUNT);
     local_data = (rplidar_response_measurement_node_t *) malloc(sizeof(rplidar_response_measurement_node_t) * MAX_LIDAR_DATA_COUNT);
     if ((lidar_data == 0) || (local_data == 0) )
     {
@@ -166,37 +174,15 @@ void init_lidar()
     else threads_running_add(1);
 }
 
-size_t get_lidar_data(rplidar_response_measurement_node_t *buffer)
+void get_lidar_data(lidar_data_type *buffer)
 {
     pthread_mutex_lock(&lidar_lock);
-      for (size_t i = 0; i < local_data_count; ++i) {
-            buffer[i].sync_quality = lidar_data[i].sync_quality;           // syncbit:1;syncbit_inverse:1;quality:6;
-            buffer[i].angle_q6_checkbit = lidar_data[i].angle_q6_checkbit; // check_bit:1;angle_q6:15;
-            buffer[i].distance_q2 = lidar_data[i].distance_q2;
-      }            
-      //size_t buffer_data_count;
-      //memcpy(buffer, lidar_data, sizeof(int) * lidar_data_count);
+      for (size_t i = 0; i < lidar_data_count; ++i) {
+            buffer->quality[i] = lidar_data[i].sync_quality >> 2;   // syncbit:1;syncbit_inverse:1;quality:6;
+            buffer->angle[i] = lidar_data[i].angle_q6_checkbit >> 1; // check_bit:1;angle_q6:15;
+            buffer->distance[i] = lidar_data[i].distance_q2;
+      }
+      buffer->count = lidar_data_count;
     pthread_mutex_unlock(&lidar_lock);
-    return lidar_data_count;
-}
-
-
-//fixme
-int ray2azimuth(int ray)
-{
-  //return (360 + (TOTAL_ANGLE_DEG / 2 - ray / SIZE_OF_ONE_DEG)) % 360;
-  return 1;
-}
-
-//fixme
-int azimuth2ray(int alpha)
-{
-/*
-  if (360 - alpha <= TOTAL_ANGLE_DEG / 2) alpha -= 360;
-  if (alpha < -TOTAL_ANGLE_DEG / 2) alpha = -TOTAL_ANGLE_DEG / 2;
-  else if (alpha > TOTAL_ANGLE_DEG / 2) alpha = TOTAL_ANGLE_DEG / 2;
-  return lidar_data_count / 2 - alpha * SIZE_OF_ONE_DEG;
-*/
-  return 1;
 }
 

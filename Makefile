@@ -1,8 +1,8 @@
 CC=gcc
+CPP=g++
 PROG=mikes
 SRCS=mikes.c \
      public_relations.c \
-     lidar.c \
      mikes_logs.c \
      navigation.c \
      gui.c \
@@ -12,13 +12,16 @@ SRCS=mikes.c \
      base_module.c \
      util.c \
      ncurses_control.c 
+CPPSRCS=lidar.cpp
 OBJS=${SRCS:.c=.o}
-CFLAGS=-std=c11 -D_BSD_SOURCE -D_XOPEN_SOURCE=600 -I/usr/include/cairo -g -Wall
-LDFLAGS=-lpthread -lcairo -lX11 -lm -lncurses
+CPPOBJS=${CPPSRCS:.cpp=.o}
+CFLAGS=-std=c11 -D_BSD_SOURCE -D_XOPEN_SOURCE=600 -I/usr/include/cairo -I/usr/local/rplidar/sdk/sdk/include/ -g -Wall
+CPPFLAGS=-D_BSD_SOURCE -D_XOPEN_SOURCE=600 -I/usr/include/cairo -I/usr/local/rplidar/sdk/sdk/include/ -g -Wall -Wno-write-strings
+LDFLAGS=-lpthread -lrt -lcairo -lX11 -lm -lncurses -L/usr/local/rplidar/sdk/output/Linux/Release -lrplidar_sdk
 PREFIX=/usr/local
 
-all: ${OBJS}
-	${CC} ${OBJS} -o ${PROG} ${CFLAGS} ${LDFLAGS}
+all: ${OBJS} ${CPPOBJS}
+	${CPP} ${OBJS} ${CPPOBJS} -o ${PROG} ${CFLAGS} ${LDFLAGS}
 
 install:
 	mv ${PROG} ${PREFIX}/bin

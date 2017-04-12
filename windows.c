@@ -18,6 +18,9 @@
 #define COMPASS_RADIUS 70
 
 #define DISPLAY_FREQUENCY 10
+#define CROP_DISTANCE (6000 * 4)
+#define ENLARGE_CENTER 500
+
 #define LOOP_DELAY 30000
 
 #define RIGHT_ARROW 0xff53
@@ -29,53 +32,50 @@
 
 #define RAY_USUAL_TYPE 1
 #define RAY_AZIMUTH_TYPE 2
+#define RAY_ZERO_TYPE 3
 
 int gui_cairo_check_event(cairo_surface_t *sfc, int block);
 void gui_shutdown();
 
 const int minx = 1, miny = 1, maxx = 8, maxy = 8;
 
-//fixme
-//static int ranges[RANGE_DATA_COUNT];
-//static segments_type segments;
+static lidar_data_type lidar_data;
 
 static double guiWidth = 600;
 static double guiHeight = 600;
 
-//fixme
 void draw_ray(int i, int ray_type)
 {
-/*
-    int x = (int)(-ranges[i] / 8000.0 * guiWidth * 0.45 * sin(i * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
-    int y = (int)(ranges[i] / 8000.0 * guiWidth * 0.45 * cos(i * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiHeight / 2);
-
+    int x, y, center_x, center_y;
     if (ray_type == RAY_USUAL_TYPE)
+    {
+      x = (int)((ENLARGE_CENTER + lidar_data.distance[i]) / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
+      y = (int)((ENLARGE_CENTER + lidar_data.distance[i]) / 32000.0 * guiHeight * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
+     center_x = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
+     center_y = (int)(ENLARGE_CENTER / 32000.0 * guiHeight * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
       cairo_set_source_rgb(gui, 0.1, 0.1, 0.8);
-    else if (ray_type == RAY_AZIMUTH_TYPE)
+    } else if (ray_type == RAY_AZIMUTH_TYPE)
+    {
+      x = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * sin(M_PI * i / 64.0 / 180.0) + guiWidth / 2);
+      y = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * cos(M_PI * i / 64.0 / 180.0) + guiHeight / 2);
+      center_x = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * sin(M_PI * i / 64.0 / 180.0) + guiWidth / 2);
+      center_y = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * cos(M_PI * i / 64.0 / 180.0) + guiHeight / 2);
       cairo_set_source_rgb(gui, 0.8, 0.8, 0.3);
-
+    } else if (ray_type == RAY_ZERO_TYPE)
+    {
+      x = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
+      y = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
+      center_x = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
+      center_y = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
+      cairo_set_source_rgb(gui, 0.8, 0.8, 0.8);
+    }
+    
     cairo_move_to(gui, x, guiHeight - y);
-    cairo_line_to(gui, guiWidth / 2, guiHeight / 2);
+    cairo_line_to(gui, center_x, guiHeight - center_y);
     cairo_stroke(gui);
     cairo_set_source_rgb(gui, 1, 0.3, 0.3);
     cairo_arc(gui, x, guiHeight - y, 2, 0, 2 * M_PI);
     cairo_stroke(gui);
-*/
-}
-
-//fixme
-void draw_segment(int ray1, int ray2)
-{
-/*
-    int x1 = (int)(-ranges[ray1] / 8000.0 * guiWidth * 0.45 * sin(ray1 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
-    int y1 = (int)(ranges[ray1] / 8000.0 * guiWidth * 0.45 * cos(ray1 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiHeight / 2);
-    int x2 = (int)(-ranges[ray2] / 8000.0 * guiWidth * 0.45 * sin(ray2 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiWidth / 2);
-    int y2 = (int)(ranges[ray2] / 8000.0 * guiWidth * 0.45 * cos(ray2 * SIZE_OF_ONE_STEP - TOTAL_ANGLE / 2) + guiHeight / 2);
-
-    cairo_set_source_rgb(gui, 1, 1, 0.5);
-    cairo_rectangle(gui, x2, guiHeight - y2, abs(x2 - x1), abs(y2 - y1));
-    cairo_stroke(gui);
-*/
 }
 
 void *gui_thread(void *arg)
@@ -90,33 +90,29 @@ void *gui_thread(void *arg)
       disp_counter++;
       if (disp_counter == DISPLAY_FREQUENCY)
       {
-        get_base_data(&base_data);
         disp_counter = 0;
-        // LASER
-//fixme
-/*
-        get_range_data(ranges);
-        get_range_segments(&segments, 180*4, 145, 280);
-*/
+        get_base_data(&base_data);
+        get_lidar_data(&lidar_data);
+
         cairo_push_group(gui);
         cairo_set_source_rgb(gui, 1, 1, 1);
         cairo_paint(gui);
         cairo_set_line_width(gui, 2);
-//fixme
-/*
-        for (int i = 0; i < RANGE_DATA_COUNT; i++)
+
+        for (int i = 0; i < lidar_data.count; i++)
         {
-          if (ranges[i] > MAX_DISTANCE) ranges[i] = MAX_DISTANCE;
+	  if (lidar_data.angle[i] > (120 * 64) && lidar_data.angle[i] < (240 * 64)) continue;
+          if (lidar_data.distance[i] == 0) {
+            draw_ray(i, RAY_ZERO_TYPE);
+            continue;
+          }
+          if (lidar_data.distance[i] > CROP_DISTANCE) lidar_data.distance[i] = CROP_DISTANCE;
           draw_ray(i, RAY_USUAL_TYPE);
         }
 
-        for (int i = 0; i < segments.nsegs_found; i++)
-          draw_segment(segments.firstray[i], segments.lastray[i]);
-
         if (get_current_azimuth() != NO_AZIMUTH)
-          draw_ray(azimuth2ray(get_current_azimuth() - base_data.heading), RAY_AZIMUTH_TYPE);
+          draw_ray(get_current_azimuth() - base_data.heading, RAY_AZIMUTH_TYPE);
 
-*/
         cairo_pop_group_to_source(gui);
         cairo_paint(gui);
         cairo_surface_flush(gui_surface);

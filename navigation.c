@@ -10,6 +10,12 @@
 #include "util.h"
 
 #define NORMAL_NAVIGATION_SPEED          12
+#define MAX_DATA_DISTANCE 6000
+#define AVOIDANCE_DISTANCE_THRESHOLD 100000
+
+typedef int bool;
+#define true 1
+#define false 0
 
 static short original_heading;
 
@@ -26,36 +32,84 @@ void debug_navigation()
     }
 }
 
+long get_sum_of_beams(lidar_data_type data)
+{
+  long sum_of_distance = 0;
+  for (int i = 0; i < data.count; ++i)
+  {
+    if (data.distance[i] == 0)
+      sum_of_distance += MAX_DATA_DISTANCE;
+    else
+      sum_of_distance += data.distance[i];
+  }
+  return sum_of_distance;
+}
+
+bool obstacle_in_data(lidar_data_type old_data, lidar_data_type new_data)
+{
+  int old_sum = get_sum_of_beams(old_data);
+  int new_sum = get_sum_of_beams(new_data);
+  if (old_sum - new_sum > AVOIDANCE_DISTANCE_THRESHOLD)
+  {
+    //stop now
+    stop_now();
+    mikes_log(ML_INFO, "Mikes sees obstacle.");
+    return true;
+  }
+  return false;
+}
+bool no_obstacle_in_data(lidar_data_type old_data, lidar_data_type new_data)
+{
+  int old_sum = get_sum_of_beams(old_data);
+  int new_sum = get_sum_of_beams(new_data);
+  if (new_sum - old_sum > AVOIDANCE_DISTANCE_THRESHOLD)
+  {
+    //start moving
+    set_motor_speeds(10,10);
+    follow_azimuth(original_heading);
+    mikes_log(ML_INFO, "Mikes sees no obstacle.");
+    return false;
+  }
+  return true;
+}
+
 
 void *navigation_thread(void *arg)
 {
     base_data_type base_data;
+    lidar_data_type lidar_data;
     sleep(3);
 
-    rplidar_response_measurement_node_t lidar_nav_data;
-//    size_t lidar_nav_data_count;
     get_base_data(&base_data);
     original_heading = base_data.heading;
     mikes_log_val(ML_INFO, "original heading: ", original_heading);
 
     reset_counters();
-    
-    //debug_navigation();
+    get_lidar_data(&lidar_data);
+
+//    debug_navigation();
 
     set_motor_speeds(10,10);
     follow_azimuth(original_heading);
     mikes_log(ML_INFO, "navigate: put");
-    //while (!start_automatically) 
-    //  usleep(10000);
-    int ii = 0;
+//    while (!start_automatically) 
+//      usleep(10000);
+    bool stopped = false;
     while (program_runs)
     {
       get_base_data(&base_data);
-      if (ii == 30) stop_now();
-//      lidar_nav_data_count = get_lidar_data(&lidar_nav_data);
-//      printf("sum of beams: %d\n", lidar_nav_data_count);
+
+      lidar_data_type old_data = lidar_data;
+      get_lidar_data(&lidar_data);
+      printf("%ld\n",get_sum_of_beams(lidar_data));
+      
+      if (stopped == 1) {
+        stopped = no_obstacle_in_data(old_data, lidar_data);
+      } else {
+        stopped = obstacle_in_data(old_data, lidar_data);
+      }
+      
       usleep(100000);
-      ++ii;
     }
 
     mikes_log(ML_INFO, "navigation quits.");

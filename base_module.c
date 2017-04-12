@@ -56,7 +56,7 @@ void connect_base_module()
         close(fdW[0]);
         close(fdW[1]);
 
-        if (execl("/usr/bin/plink", "/usr/bin/plink", "/dev/ttyUSB0",
+        if (execl("/usr/bin/plink", "/usr/bin/plink", "/dev/base",
                   "-serial", "-sercfg", "115200,N,n,8,1", NULL) < 0)
         {
             mikes_log(ML_ERR, "base: child execl()");
