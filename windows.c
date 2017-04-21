@@ -8,6 +8,9 @@
 #include <X11/Xutil.h>
 #include <cairo.h>
 #include <cairo-xlib.h>
+//#include <glib/gprintf.h>
+#include <rsvg.h>
+//#include <rsvg-cairo.h>
 
 #include "mikes.h"
 #include "mikes_logs.h"
@@ -84,6 +87,13 @@ void *gui_thread(void *arg)
     double cpHeight = 200;
     base_data_type base_data;
     int disp_counter = 0;
+    GError *err;
+    RsvgHandle *svg_handle = rsvg_handle_new_from_file ("mapa_pavilonu_I.svg", &err);
+    if (svg_handle == 0)
+    {
+      mikes_log(ML_ERR, "could not load svg file");
+      mikes_log(ML_ERR, err->message);
+    }
 
     while (program_runs)
     {
@@ -94,6 +104,7 @@ void *gui_thread(void *arg)
         get_base_data(&base_data);
         get_lidar_data(&lidar_data);
 
+	/* lidar window */
         cairo_push_group(gui);
         cairo_set_source_rgb(gui, 1, 1, 1);
         cairo_paint(gui);
@@ -118,6 +129,7 @@ void *gui_thread(void *arg)
         cairo_surface_flush(gui_surface);
         //gui_cairo_check_event(gui_surface, 0);
 
+	/* compass window */
         cairo_push_group(cp_gui);
         cairo_set_source_rgb(cp_gui, 1, 1, 1);
         cairo_paint(cp_gui);
@@ -134,6 +146,31 @@ void *gui_thread(void *arg)
         cairo_pop_group_to_source(cp_gui);
         cairo_paint(cp_gui);
         cairo_surface_flush(cp_gui_surface);
+	
+	/* map window */
+	cairo_push_group(map_gui);
+        cairo_set_source_rgb(map_gui, 1, 1, 1);
+        cairo_paint(map_gui);
+        cairo_set_source_rgb(map_gui, 0.1, 0.3, 1);
+        /*
+        cairo_set_line_width(map_gui, 2);
+        cairo_set_source_rgb(map_gui, 0.1, 0.3, 1);
+        cairo_arc(map_gui, cpWidth / 2, cpHeight / 2, COMPASS_RADIUS + 5, 0, 2 * M_PI);
+        cairo_stroke(map_gui);
+        double map_compass_x = COMPASS_RADIUS * sin(M_PI * base_data.heading / 180.0);
+        double map_compass_y = COMPASS_RADIUS * cos(M_PI * base_data.heading / 180.0);
+        cairo_set_source_rgb(map_gui, 1, 0, 0.2);
+        cairo_move_to(map_gui, cpWidth / 2 + compass_x, cpHeight / 2 - compass_y);
+        cairo_line_to(map_gui, cpWidth / 2, cpHeight / 2);
+        cairo_stroke(map_gui);
+        cairo_pop_group_to_source(map_gui);
+        cairo_paint(map_gui);
+        cairo_surface_flush(map_gui_surface);
+*/	
+        rsvg_handle_render_cairo(svg_handle, map_gui);
+        cairo_pop_group_to_source(map_gui);
+        cairo_paint(map_gui);
+        cairo_surface_flush(map_gui_surface);
       }
 
         int event = gui_cairo_check_event(cp_gui_surface, 0);
