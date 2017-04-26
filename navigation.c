@@ -101,7 +101,7 @@ void *navigation_thread(void *arg)
 
       lidar_data_type old_data = lidar_data;
       get_lidar_data(&lidar_data);
-      printf("%ld\n",get_sum_of_beams(lidar_data));
+//      printf("%ld\n",get_sum_of_beams(lidar_data));
       
       if (stopped == 1) {
         stopped = no_obstacle_in_data(old_data, lidar_data);

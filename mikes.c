@@ -13,6 +13,7 @@
 #include "config_mikes.h"
 #include "base_module.h"
 #include "ncurses_control.h"
+#include "mcl.h"
 
 volatile unsigned char program_runs;
 static pthread_mutex_t mikes_lock;
@@ -51,6 +52,7 @@ int main(int argc, char **argv)
   init_lidar();
   init_navigation();
   init_ncurses_control();
+  init_mcl();
 
   init_gui();
 

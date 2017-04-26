@@ -17,6 +17,7 @@
 #include "lidar.h"
 #include "base_module.h"
 #include "gui.h"
+#include "mcl.h"
 
 #define COMPASS_RADIUS 70
 
@@ -37,12 +38,19 @@
 #define RAY_AZIMUTH_TYPE 2
 #define RAY_ZERO_TYPE 3
 
+#define MAP_ZOOM_FACTOR_HYPO 1
+#define MAP_ZOOM_FACTOR 1//(MAP_ZOOM_FACTOR_HYPO * 40)
+#define MAP_XOFFSET 0 // -120
+#define MAP_YOFFSET 0 // -270
+
 int gui_cairo_check_event(cairo_surface_t *sfc, int block);
 void gui_shutdown();
 
 const int minx = 1, miny = 1, maxx = 8, maxy = 8;
 
 static lidar_data_type lidar_data;
+
+static hypo_t hypo[HYPO_COUNT];
 
 static double guiWidth = 600;
 static double guiHeight = 600;
@@ -152,22 +160,43 @@ void *gui_thread(void *arg)
         cairo_set_source_rgb(map_gui, 1, 1, 1);
         cairo_paint(map_gui);
         cairo_set_source_rgb(map_gui, 0.1, 0.3, 1);
-        /*
-        cairo_set_line_width(map_gui, 2);
-        cairo_set_source_rgb(map_gui, 0.1, 0.3, 1);
-        cairo_arc(map_gui, cpWidth / 2, cpHeight / 2, COMPASS_RADIUS + 5, 0, 2 * M_PI);
-        cairo_stroke(map_gui);
-        double map_compass_x = COMPASS_RADIUS * sin(M_PI * base_data.heading / 180.0);
-        double map_compass_y = COMPASS_RADIUS * cos(M_PI * base_data.heading / 180.0);
-        cairo_set_source_rgb(map_gui, 1, 0, 0.2);
-        cairo_move_to(map_gui, cpWidth / 2 + compass_x, cpHeight / 2 - compass_y);
-        cairo_line_to(map_gui, cpWidth / 2, cpHeight / 2);
-        cairo_stroke(map_gui);
-        cairo_pop_group_to_source(map_gui);
-        cairo_paint(map_gui);
-        cairo_surface_flush(map_gui_surface);
-*/	
+
         rsvg_handle_render_cairo(svg_handle, map_gui);
+          
+          get_mcl_data(hypo);
+          for (int i = 0; i < HYPO_COUNT; i++)
+          {
+              double x = hypo[i].x;
+              double y = hypo[i].y;
+              double alpha = hypo[i].alpha;
+              double w = hypo[i].w;
+              
+              cairo_set_source_rgb(map_gui, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1);
+              cairo_set_line_width(map_gui, 3);
+              
+              cairo_set_line_width(map_gui, 10);
+              double hypoax = 5*cos(M_PI * alpha / 180);
+              double hypoay = -5*sin(M_PI * alpha / 180);
+              
+              cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
+              cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+              cairo_stroke(map_gui);
+              
+              hypoax = 3*cos(M_PI * alpha / 180 + M_PI/2);
+              hypoay = -3*sin(M_PI * alpha / 180 + M_PI/2);
+              cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
+              cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+              cairo_stroke(map_gui);
+              
+              hypoax = 3*cos(M_PI * alpha / 180-M_PI/2);
+              hypoay = -3*sin(M_PI * alpha / 180- M_PI/2);
+              cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
+              cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+              cairo_stroke(map_gui);
+              
+          }
+
+        
         cairo_pop_group_to_source(map_gui);
         cairo_paint(map_gui);
         cairo_surface_flush(map_gui_surface);
