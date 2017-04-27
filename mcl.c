@@ -8,6 +8,7 @@
 #include "mikes_logs.h"
 #include "mcl.h"
 
+
 #define MAP_W 4578
 #define MAP_H 4303
 #define NUMBER_OF_VERTICES 1000
@@ -130,18 +131,62 @@ int get_polygon_from_file(point *buffer, const char *filename, int room) {
     
     int vert_n = parse_element(root_element->children, buffer, room);
     
-    //printf("%i", vert_n);
-    
-//    for (int i = 0; i < num_of_vertices; ++i) {
-//        printf("vertex (%i, %i)\n", buffer[i].x, buffer[i].y);
-//    }
-    
     /* free the document */
     xmlFreeDoc(doc);
     /* Free the global variables that may have been allocated by the parser. */
     xmlCleanupParser();
     
     return vert_n;
+}
+
+
+//  public domain function by Darel Rex Finley, 2006
+
+
+
+//  Determines the intersection point of the line defined by points A and B with the
+//  line defined by points C and D.
+//
+//  Returns ABpos if the intersection point was found.
+//  Returns -1/-2 if there is no determinable intersection point.
+//  source: http://alienryderflex.com/intersect/
+
+double line_intersection(
+                      double Ax, double Ay,
+                      double Bx, double By,
+                      double Cx, double Cy,
+                      double Dx, double Dy)
+{
+    
+    double  distAB, theCos, theSin, newX, ABpos ;
+    
+    //  Fail if either line is undefined.
+    if ((Ax==Bx && Ay==By) || (Cx==Dx && Cy==Dy)) return -1;
+    
+    //  (1) Translate the system so that point A is on the origin.
+    Bx-=Ax; By-=Ay;
+    Cx-=Ax; Cy-=Ay;
+    Dx-=Ax; Dy-=Ay;
+    
+    //  Discover the length of segment A-B.
+    distAB=sqrt(Bx*Bx+By*By);
+    
+    //  (2) Rotate the system so that point B is on the positive X axis.
+    theCos=Bx/distAB;
+    theSin=By/distAB;
+    newX=Cx*theCos+Cy*theSin;
+    Cy  =Cy*theCos-Cx*theSin; Cx=newX;
+    newX=Dx*theCos+Dy*theSin;
+    Dy  =Dy*theCos-Dx*theSin; Dx=newX;
+    
+    //  Fail if the lines are parallel.
+    if (Cy==Dy) return -2;
+    
+    //  (3) Discover the position of the intersection point along line A-B.
+    ABpos=Dx+(Cx-Dx)*Dy/(Dy-Cy);
+    
+    //  Success.
+    return ABpos;
 }
 
 int init_mcl(){
@@ -168,9 +213,7 @@ int init_mcl(){
         do {
             rand_x = rand() % MAP_W;
             rand_y = rand() % MAP_H;
-        } while (!pnpoly(vert_n_i, poly_i, rand_x, rand_y)
-                 || pnpoly(vert_n_a, poly_a, rand_x, rand_y)
-                 || pnpoly(vert_n_h, poly_h, rand_x, rand_y));
+        } while (!is_in_corridor(rand_x, rand_y));
         
         
         hypo[0][i].x = hypo[1][i].x = rand_x;
@@ -193,3 +236,183 @@ void get_mcl_data(hypo_t *buffer)
     memcpy(buffer, hypo[activeHypo], sizeof(hypo_t) * HYPO_COUNT);
     pthread_mutex_unlock(&lidar_mcl_lock);
 }
+
+double normAlpha(double alpha){
+    if(alpha < 0){
+        while(alpha < 0)
+            alpha += 360;
+    }
+    else
+        while(alpha >= 360)
+            alpha -= 360;
+    return alpha;		
+}
+
+
+double generateGaussianNoise(double mu, double sigma)
+{
+    const double epsilon = 0.000000001;
+    const double two_pi = 2.0*3.14159265358979323846;
+    
+    static double z0, z1;
+    static int generate;
+    generate = 1-generate;
+    
+    if (!generate)
+        return z1 * sigma + mu;
+    
+    double u1, u2;
+    do
+    {
+        u1 = rand() * (1.0 / RAND_MAX);
+        u2 = rand() * (1.0 / RAND_MAX);
+    }
+    while ( u1 <= epsilon );
+    
+    z0 = sqrt(-2.0 * log(u1)) * cos(two_pi * u2);
+    z1 = sqrt(-2.0 * log(u1)) * sin(two_pi * u2);
+    return z0 * sigma + mu;
+}
+
+double get_min_intersection_dist(double x1, double y1, double x2, double y2) {
+    
+    double min_dist = MAP_H + MAP_W;
+    double dist = 0;
+    
+    for (int i = 0; i < NUMBER_OF_VERTICES_I; ++i) {
+        dist = line_intersection(x1, y1,
+                                 x2, y2,
+                                 poly_i[i].x, poly_i[i].y,
+                                 poly_i[(i+1) % NUMBER_OF_VERTICES_I].x, poly_i[(i+1) % NUMBER_OF_VERTICES_I].y);
+        if (dist < min_dist) {
+            min_dist = dist;
+        }
+    }
+    for (int i = 0; i < NUMBER_OF_VERTICES_A; ++i) {
+        dist = line_intersection(x1, y1,
+                                 x2, y2,
+                                 poly_a[i].x, poly_a[i].y,
+                                 poly_a[(i+1) % NUMBER_OF_VERTICES_A].x, poly_a[(i+1) % NUMBER_OF_VERTICES_A].y);
+        if (dist < min_dist) {
+            min_dist = dist;
+        }
+    }
+    for (int i = 0; i < NUMBER_OF_VERTICES_H; ++i) {
+        dist = line_intersection(x1, y1,
+                                 x2, y2,
+                                 poly_h[i].x, poly_h[i].y,
+                                 poly_h[(i+1) % NUMBER_OF_VERTICES_H].x, poly_h[(i+1) % NUMBER_OF_VERTICES_H].y);
+        if (dist < min_dist) {
+            min_dist = dist;
+        }
+    }
+    return min_dist;
+}
+
+int mcl_update(double traveled, int heading, lidar_data_type liddata){
+    mikes_log_double(ML_INFO, "MCL New data - traveled:", traveled);
+    mikes_log_val(ML_INFO, "MCL New data - heading:", heading);
+        
+    pthread_mutex_lock(&lidar_mcl_lock);
+    activeHypo = 1-activeHypo;
+    
+    for(int i = 0; i < HYPO_COUNT; i++){
+        mikes_log_val(ML_DEBUG, "hypo id premove: ", i);
+        mikes_log_val2(ML_DEBUG, "hypo pos: ", hypo[1-activeHypo][i].x,hypo[1-activeHypo][i].y);
+        mikes_log_val2(ML_DEBUG, "hypo v&a: ", hypo[1-activeHypo][i].w*100,hypo[1-activeHypo][i].alpha);
+    }
+    
+    // poposuvame bodky podla pohybu
+    for (int i = 0; i < HYPO_COUNT; i++) {
+        
+        //double alpha_h = normAlpha(hypo[1-activeHypo][i].alpha+heading);
+        hypo[1-activeHypo][i].x += traveled * cos(normAlpha(hypo[1-activeHypo][i].alpha+heading)*M_PI/180.0);
+        hypo[1-activeHypo][i].y -= traveled * sin(normAlpha(hypo[1-activeHypo][i].alpha+heading)*M_PI/180.0);
+        hypo[1-activeHypo][i].alpha = normAlpha(hypo[1-activeHypo][i].alpha + heading);
+    
+        // ok bodka vysla z chodby, tak vahu bodke nastavime na nulu a ani dalej nepokracujeme
+        if(!is_in_corridor(hypo[1-activeHypo][i].x, hypo[1-activeHypo][i].y)) {
+            hypo[1-activeHypo][i].w = 0;
+            continue;
+        }
+    
+    
+        //sensor position // 22 je vzdialenost senzora od stredu robota? v cm?
+        double possx = hypo[1-activeHypo][i].x + cos(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 22;
+        double possy = hypo[1-activeHypo][i].y - sin(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 22;
+        //tag position
+        //double minposx;
+        //double minposy;
+    
+    
+        // ratame pravdepodobnost ze sa robot vyskytuje na danej bodke
+        /*
+         porovname kazdy luc aky je namerany a aky by pre tuto danu bodku mal vyjst.
+         dlzku nameraneho luca vieme, aj uhol
+         vypocitame pre dany uhol kazdeho luca aka by dlzka mala vyjst
+         */
+        if (i == 1) {
+           for (int i = 0; i < liddata.count; ++i) {
+               uint16_t measured_distance = liddata.distance[i] / 4; // Actual distance = distance_q2 / 4 mm
+               
+               uint16_t angle_64 = liddata.angle;
+               double angle = angle_64 / 64.0;
+               double computed_distance_double = get_min_intersection_dist(possx, possy, possx + cos(angle*M_PI/180.0), possy - sin(angle*M_PI/180.0));
+               uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
+               mikes_log_val2(ML_INFO, "measured | computed ", measured_distance, computed_distance);
+           }
+        }
+    }
+           
+    
+    for(int i = 0; i< HYPO_COUNT; i++){
+        mikes_log_val(ML_DEBUG, "hypo id postmove: ", i);
+        mikes_log_val2(ML_DEBUG, "hypo pos: ", hypo[1-activeHypo][i].x,hypo[1-activeHypo][i].y);
+        mikes_log_val2(ML_DEBUG, "hypo v&a: ", hypo[1-activeHypo][i].w*100,hypo[1-activeHypo][i].alpha);
+    }
+    
+    double cumP[HYPO_COUNT];
+    double last = 0;
+    for(int i = 0; i<= HYPO_COUNT; i++){
+        last += hypo[1-activeHypo][i].w;
+        cumP[i] = last;
+    }
+    
+    // vygenerujeme nove bodky a zasumime ich
+    int i;
+    for(i = 0; i < HYPO_COUNT*0.9; i++){
+        double next = (double)rand() / (double)RAND_MAX * last;
+        for(int j = 0; j< HYPO_COUNT; j++){
+            if( next <= cumP[j]){
+                hypo[activeHypo][i].x = hypo[1-activeHypo][j].x + generateGaussianNoise(0, 0.03*traveled);
+                hypo[activeHypo][i].y = hypo[1-activeHypo][j].y + generateGaussianNoise(0, 0.03*traveled);
+                hypo[activeHypo][i].alpha = normAlpha(hypo[1-activeHypo][j].alpha + generateGaussianNoise(0, heading*0.05));
+                hypo[activeHypo][i].w = hypo[1-activeHypo][j].w;
+                break;
+            }
+        }
+    }
+    
+    // generujeme novych nahodnych 10% bodiek
+    for(; i< HYPO_COUNT; i++){
+        
+        double rand_x = 0;
+        double rand_y = 0;
+        
+        do {
+            rand_x = rand() % MAP_W;
+            rand_y = rand() % MAP_H;
+        } while (!is_in_corridor(rand_x, rand_y));
+        
+        hypo[0][i].x = hypo[1][i].x = rand_x;
+        hypo[0][i].y = hypo[1][i].y = rand_y;
+        hypo[0][i].alpha = hypo[1][i].alpha = rand() % 360;
+        hypo[0][i].w = hypo[1][i].w = 0.01;
+        
+    }	
+    
+    pthread_mutex_unlock(&lidar_mcl_lock);
+    
+    return 0;
+}
+
