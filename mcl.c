@@ -11,6 +11,9 @@
 #define MAP_W 4578
 #define MAP_H 4303
 #define NUMBER_OF_VERTICES 1000
+#define NUMBER_OF_VERTICES_I 101
+#define NUMBER_OF_VERTICES_A 49
+#define NUMBER_OF_VERTICES_H 13
 #define ROOM_I 1
 #define ROOM_ATRIUM 2
 #define ROOM_H3_H6 3
@@ -18,9 +21,9 @@
 pthread_mutex_t lidar_mcl_lock;
 
 hypo_t hypo[2][HYPO_COUNT];
-point poly_i[NUMBER_OF_VERTICES]; // pavilon I
-point poly_a[NUMBER_OF_VERTICES]; // atrium
-point poly_h[NUMBER_OF_VERTICES]; // miestnosti H3 a H6
+point poly_i[NUMBER_OF_VERTICES_I]; // pavilon I
+point poly_a[NUMBER_OF_VERTICES_A]; // atrium
+point poly_h[NUMBER_OF_VERTICES_H]; // miestnosti H3 a H6
 
 int vert_n_i;
 int vert_n_a;
@@ -28,7 +31,7 @@ int vert_n_h;
 
 int activeHypo = 0;
 
-int pnpoly(int n_vert, point *vertices, int test_x, int test_y)
+int pnpoly(int n_vert, point *vertices, double test_x, double test_y)
 {
     int i, j = 0;
     bool c = false;
@@ -40,6 +43,15 @@ int pnpoly(int n_vert, point *vertices, int test_x, int test_y)
         }
     }
     return c;
+}
+
+int is_in_corridor(int cx, int cy) {
+    if (pnpoly(vert_n_i, poly_i, cx, cy)
+    && !pnpoly(vert_n_a, poly_a, cx, cy)
+    && !pnpoly(vert_n_h, poly_h, cx, cy))
+        return 1;
+    else
+        return 0;
 }
 
 static int parse_element(xmlNode* a_node, point* points, int room)
@@ -83,8 +95,8 @@ static int parse_element(xmlNode* a_node, point* points, int room)
                 //xmlChar *x2 = xmlGetProp(cur_node, (const xmlChar *) "x2");
                 //xmlChar *y2 = xmlGetProp(cur_node, (const xmlChar *) "y2");
                 //xmlChar *lineId = xmlGetProp(cur_node, (const xmlChar *) "lineId");
-                points[i].x = atoi((const char *) x1);
-                points[i].y = atoi((const char *) y1);
+                points[i].x = (double) atoi((const char *) x1);
+                points[i].y = (double) atoi((const char *) y1);
                 ++i;
                 //printf("Line %i: x1 = %s y1 = %s x2 = %s y2 = %s\n", atoi((const char *) lineId), x1, y1, x2, y2);
             }
@@ -150,10 +162,9 @@ int init_mcl(){
     
     for (int i = 0; i < HYPO_COUNT; i++){
         
-        int rand_x = 0;
-        int rand_y = 0;
+        double rand_x = 0;
+        double rand_y = 0;
         
-
         do {
             rand_x = rand() % MAP_W;
             rand_y = rand() % MAP_H;
@@ -162,40 +173,14 @@ int init_mcl(){
                  || pnpoly(vert_n_h, poly_h, rand_x, rand_y));
         
         
-        hypo[0][i].x = hypo[1][i].x = (float) rand_x;
-        hypo[0][i].y = hypo[1][i].y = (float) rand_y;
+        hypo[0][i].x = hypo[1][i].x = rand_x;
+        hypo[0][i].y = hypo[1][i].y = rand_y;
         hypo[0][i].alpha = hypo[1][i].alpha = rand() % 360;
         hypo[0][i].w = hypo[1][i].w = 0.3;
         
-        /*
-        if (pnpoly(vert_n_i, poly_i, rand_x, rand_y)
-            && !pnpoly(vert_n_a, poly_a, rand_x, rand_y)
-            && !pnpoly(vert_n_h, poly_h, rand_x, rand_y)) {
-            //printf("in\n");
-            mikes_log_val(ML_INFO, "hypo poly_i in ", i);
-            hypo[0][i].w = hypo[1][i].w = 0.9;
-
-        } else {
-            //printf("out\n");
-            mikes_log_val(ML_INFO, "hypo poly_i out ", i);
-            hypo[0][i].w = hypo[1][i].w = 0.1;
-        }
-        */
-        
-//        if (pnpoly(vert_n_i, poly_i, rand_x, rand_y))
-////            && !pnpoly(vert_n_a, poly_a, rand_x, rand_y)
-////            && !pnpoly(vert_n_h, poly_h, rand_x, rand_y))
-//        {
-//            //hypo[0][i].c = hypo[1][i].c = 1;
-//            printf("in I");
-//        } else {
-//            //hypo[0][i].c = hypo[1][i].c = 2;
-//            printf("outside I");
-//        }
-        
 //        mikes_log_val(ML_INFO, "hypo id: ", i);
 //        mikes_log_double2(ML_INFO, "hypo pos: ", hypo[0][i].x,hypo[0][i].y);
-//       mikes_log_double2(ML_INFO, "hypo v&a: ", hypo[0][i].w,hypo[0][i].alpha);
+//        mikes_log_double2(ML_INFO, "hypo v&a: ", hypo[0][i].w,hypo[0][i].alpha);
 
         
     }
