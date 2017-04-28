@@ -6,7 +6,6 @@
 typedef struct {
   double x, y, alpha;
   double w;
-  int c;
 } hypo_t;
 
 typedef struct {
@@ -19,5 +18,12 @@ typedef struct {
 int init_mcl();
 void get_mcl_data(hypo_t *buffer);
 int mcl_update(double traveled, int heading, lidar_data_type liddata);
+double line_intersection(double Ax, double Ay,
+                         double Bx, double By,
+                         double Cx, double Cy,
+                         double Dx, double Dy);
+   
+double line_inter_poly_i(double Ax, double Ay,
+                         double Bx, double By, int i);
 
 #endif
