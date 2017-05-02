@@ -8,9 +8,7 @@
 #include <X11/Xutil.h>
 #include <cairo.h>
 #include <cairo-xlib.h>
-//#include <glib/gprintf.h>
 #include <rsvg.h>
-//#include <rsvg-cairo.h>
 
 #include "mikes.h"
 #include "mikes_logs.h"
@@ -43,10 +41,12 @@
 #define MAP_XOFFSET 0 // -120
 #define MAP_YOFFSET 0 // -270
 
+#define SCALE_WEIGHT 0.5
+
 int gui_cairo_check_event(cairo_surface_t *sfc, int block);
 void gui_shutdown();
 
-const int minx = 1, miny = 1, maxx = 8, maxy = 8;
+//const int minx = 1, miny = 1, maxx = 8, maxy = 8;
 
 static lidar_data_type lidar_data;
 
@@ -166,12 +166,25 @@ void *gui_thread(void *arg)
          rsvg_handle_render_cairo(svg_handle, map_gui);
          
          get_mcl_data(hypo);
+         
+         double max_w = 0.0;
+         for (int i = 0; i < HYPO_COUNT; i++)
+         {
+            if (hypo[i].w > max_w)
+               max_w = hypo[i].w;
+         }
+         
+         
          for (int i = 0; i < HYPO_COUNT; i++)
          {
             double x = hypo[i].x;
             double y = hypo[i].y;
             double alpha = hypo[i].alpha;
-            double w = hypo[i].w;
+            double w;
+            if (max_w >= SCALE_WEIGHT)
+               w = hypo[i].w;
+            else
+               w = (hypo[i].w * SCALE_WEIGHT) / max_w;
             
             cairo_set_source_rgb(map_gui, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1);
             cairo_set_line_width(map_gui, 3);
@@ -197,47 +210,35 @@ void *gui_thread(void *arg)
             cairo_stroke(map_gui);
             
          }
-
          
-         for (int i = 0; i < 1; ++i) {
-            double myx = hypo[i].x;
-            double myy = hypo[i].y;
-            double myangle = hypo[i].alpha;
-
-//            double myw = hypo[i].w;
-            
-            // TODO pocitanie sin a cos
-            double mycos = cos(myangle * M_PI / 180.0);
-            double mysin = sin(myangle * M_PI / 180.0);
-
-            
-            double dist = line_inter_poly_i(myx, myy, myy + mycos, myy - mysin, 0);
-            
-            cairo_set_source_rgb(map_gui, 1, 0.1, 0.1);
-            cairo_set_line_width(map_gui, 10);
-            
-            cairo_move_to(map_gui, (int) myx, (int) myy);
-            cairo_line_to(map_gui, (int) (myx + (mycos*dist)), (int) (myy - (mysin*dist)));
-            
-            cairo_stroke(map_gui);
-
-            cairo_set_source_rgb(map_gui, 0.1, 1, 0.1);
-            cairo_move_to(map_gui, (int) myx, (int) myy);
-            cairo_line_to(map_gui, (int) (myx + (mycos*100)), (int) (myy - (mysin*100)));
-            
-            cairo_stroke(map_gui);
-            
-            if (intersected ==0) {
-               mikes_log_val(ML_DEBUG, "hypo alpha", (int) myangle);
-               mikes_log_double2(ML_DEBUG, "hypo point", myx, myy);
-               mikes_log_double2(ML_DEBUG, "hypo cos sin", mycos, mysin);
-               mikes_log_val(ML_DEBUG, "hypo dist = ", (int) dist);
-            }
-
-         }
-         intersected = 1;
-
+         //pomocne vykreslovanie
          
+//         get_lidar_data(&lidar_data);
+//
+//         for (int i = 0; i < 1; ++i) {
+//
+//            double possx = hypo[i].x + cos(hypo[i].alpha*M_PI/180.0) * 1;
+//            double possy = hypo[i].y - sin(hypo[i].alpha*M_PI/180.0) * 1;
+//
+//            for (int j = 0; j < lidar_data.count; ++j) {
+//               uint16_t measured_distance = lidar_data.distance[j] / 40; // Actual distance = distance_q2 / 4 mm // but we want distance in cm
+//
+//               uint16_t angle_64 = lidar_data.angle[j];
+//               double angle = angle_64 / 64.0;
+//
+//               cairo_set_line_width(map_gui, 3);
+//               cairo_set_source_rgb(map_gui, 0.1, 0.1, 1);
+//               cairo_move_to(map_gui, possx, possy);
+//               cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * measured_distance), possy - (sin(angle*M_PI/180.0) * measured_distance));
+//
+//               double computed_distance_double = get_min_intersection_dist(possx, possy, angle);
+////               cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * computed_distance_double), possy - (sin(angle*M_PI/180.0) * computed_distance_double));
+//
+////               uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
+////               mikes_log_double2(ML_DEBUG, "possx | possy ", possx, possy);
+//               mikes_log_double2(ML_DEBUG, "measured | computed ", measured_distance, computed_distance_double);
+//            }
+//         }
          
          cairo_pop_group_to_source(map_gui);
          cairo_paint(map_gui);

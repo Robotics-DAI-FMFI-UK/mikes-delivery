@@ -9,9 +9,7 @@
 #include "mcl.h"
 
 
-#define MAP_W 4578
-#define MAP_H 4303
-#define NUMBER_OF_VERTICES 1000
+#define NUMBER_OF_VERTICES 163
 #define NUMBER_OF_VERTICES_I 101
 #define NUMBER_OF_VERTICES_A 49
 #define NUMBER_OF_VERTICES_H 13
@@ -19,12 +17,16 @@
 #define ROOM_ATRIUM 2
 #define ROOM_H3_H6 3
 
+#define NORM_PROB_CONST 0.2
+
 pthread_mutex_t lidar_mcl_lock;
 
 hypo_t hypo[2][HYPO_COUNT];
 point poly_i[NUMBER_OF_VERTICES_I]; // pavilon I
 point poly_a[NUMBER_OF_VERTICES_A]; // atrium
 point poly_h[NUMBER_OF_VERTICES_H]; // miestnosti H3 a H6
+
+//line lines[NUMBER_OF_VERTICES]; //vsetky ciary z mapy //TODO
 
 int vert_n_i;
 int vert_n_a;
@@ -139,6 +141,12 @@ int get_polygon_from_file(point *buffer, const char *filename, int room) {
    return vert_n;
 }
 
+int fsame(double a, double b)
+{
+   const double epsilon = 0.000000001;
+   return (fabs(a-b) < epsilon);
+}
+
 
 //  public domain function by Darel Rex Finley, 2006
 
@@ -152,53 +160,52 @@ int get_polygon_from_file(point *buffer, const char *filename, int room) {
 //  source: http://alienryderflex.com/intersect/
 
 double line_intersection(
-                         double Ax, double Ay,
-                         double Bx, double By,
-                         double Cx, double Cy,
-                         double Dx, double Dy)
+                         double x1, double y1,
+                         double x2, double y2,
+                         double x3, double y3,
+                         double x4, double y4,
+                         double *X, double *Y)
 {
+   double A1 = y2 - y1;
+   double B1 = x1 - x2;
+   double C1 = A1 * x1 + B1 * y1;
    
-   double  distAB, theCos, theSin, newX, ABpos ;
+   double A2 = y4 - y3;
+   double B2 = x3 - x4;
+   double C2 = A2 * x3 + B2 * y3;
    
-   //  Fail if either line is undefined.
-   if ((Ax==Bx && Ay==By) || (Cx==Dx && Cy==Dy)) return -1;
-   
-   //  (1) Translate the system so that point A is on the origin.
-   Bx-=Ax; By-=Ay;
-   Cx-=Ax; Cy-=Ay;
-   Dx-=Ax; Dy-=Ay;
-   
-   //  Discover the length of segment A-B.
-   distAB=sqrt(Bx*Bx+By*By);
-   
-   //  (2) Rotate the system so that point B is on the positive X axis.
-   theCos=Bx/distAB;
-   theSin=By/distAB;
-   newX=Cx*theCos+Cy*theSin;
-   Cy  =Cy*theCos-Cx*theSin; Cx=newX;
-   newX=Dx*theCos+Dy*theSin;
-   Dy  =Dy*theCos-Dx*theSin; Dx=newX;
-   
-   //  Fail if the lines are parallel.
-   if (Cy==Dy) return -2;
-   
-   //  (3) Discover the position of the intersection point along line A-B.
-   ABpos=Dx+(Cx-Dx)*Dy/(Dy-Cy);
-   
-//   //  (4) Apply the discovered position to line A-B in the original coordinate system.
-//   *X=Ax+ABpos*theCos;
-//   *Y=Ay+ABpos*theSin;
-   
-   //  Success.
-   return ABpos;
+   double det = A1 * B2 - A2 * B1;
+   if (det == 0) {
+      //Lines are parallel
+      return -1;
+   } else {
+      double x = (B2*C1 - B1*C2)/det;
+      double y = (A1*C2 - A2*C1)/det;
+      if ((fsame(x, fmin(x1,x2)) || fmin(x1,x2) < x)
+          && (fsame(x, fmax(x1,x2)) || x < fmax(x1,x2))
+          && (fsame(y, fmin(y1,y2)) || fmin(y1,y2) < y)
+          && (fsame(y, fmax(y1,y2)) || y < fmax(y1,y2))
+          && (fsame(x, fmin(x3,x4)) || fmin(x3,x4) < x)
+          && (fsame(x, fmax(x3,x4)) || x < fmax(x3,x4))
+          && (fsame(y, fmin(y3,y4)) || fmin(y3,y4) < y)
+          && (fsame(y, fmax(y3,y4)) || y < fmax(y3,y4)))
+      {
+         *X = x;
+         *Y = y;
+         return 1;
+      } else
+         return -2;
+   }
 }
 
-double line_inter_poly_i(double Ax, double Ay, double Bx, double By, int i)
-{
-   return line_intersection(poly_i[i].x, poly_i[i].y,
-                            poly_i[(i+1) % NUMBER_OF_VERTICES_I].x, poly_i[(i+1) % NUMBER_OF_VERTICES_I].y,
-                            Ax, Ay,
-                            Bx, By);
+double get_sensor_model(double d, double x) {
+   
+   double sigma = d / 100.0;
+   
+   double exponent = pow(x - d, 2) / (2 * pow(sigma, 2));
+   double result = exp(-exponent) / (sigma * sqrt(2 * M_PI));
+   
+   return result;
 }
 
 int init_mcl(){
@@ -213,9 +220,9 @@ int init_mcl(){
    vert_n_a = get_polygon_from_file(poly_a, "mapa_pavilonu_I.svg", ROOM_ATRIUM);
    vert_n_h = get_polygon_from_file(poly_h, "mapa_pavilonu_I.svg", ROOM_H3_H6);
    
-   mikes_log_val(ML_INFO, "vert_n_i = ", vert_n_i);
-   mikes_log_val(ML_INFO, "vert_n_a = ", vert_n_a);
-   mikes_log_val(ML_INFO, "vert_n_h = ", vert_n_h);
+//   mikes_log_val(ML_INFO, "vert_n_i = ", vert_n_i);
+//   mikes_log_val(ML_INFO, "vert_n_a = ", vert_n_a);
+//   mikes_log_val(ML_INFO, "vert_n_h = ", vert_n_h);
    
    for (int i = 0; i < HYPO_COUNT; i++){
       
@@ -231,7 +238,8 @@ int init_mcl(){
       hypo[0][i].x = hypo[1][i].x = rand_x;
       hypo[0][i].y = hypo[1][i].y = rand_y;
       hypo[0][i].alpha = hypo[1][i].alpha = rand() % 360;
-      hypo[0][i].w = hypo[1][i].w = 0.3;
+      double hypo_count_d = (double) HYPO_COUNT;
+      hypo[0][i].w = hypo[1][i].w = 1 / hypo_count_d;
       
       //        mikes_log_val(ML_INFO, "hypo id: ", i);
       //        mikes_log_double2(ML_INFO, "hypo pos: ", hypo[0][i].x,hypo[0][i].y);
@@ -239,6 +247,10 @@ int init_mcl(){
       
       
    }
+   
+//   for (int i = 0; i < 200; ++i) {
+//      mikes_log_double(ML_DEBUG, "gaussian probability", get_sensor_model(100.0, (double) i));
+//   }
    return 0;
 }
 
@@ -286,38 +298,57 @@ double generateGaussianNoise(double mu, double sigma)
    return z0 * sigma + mu;
 }
 
-double get_min_intersection_dist(double x1, double y1, double x2, double y2) {
+double get_min_intersection_dist(double x1, double y1, double alpha) {
    
-   double min_dist = MAP_H + MAP_W;
-   double dist = 0;
+   double lm = MAP_H * MAP_H; // max lenght for line segment
+   double min_dist = MAP_H * MAP_W;
+   double dist = MAP_H * MAP_W;
+   
+   double cosa = cos(alpha * M_PI / 180.0);
+   double sina = sin(alpha * M_PI / 180.0);
+   
+   double nx = x1;
+   double ny = y1;
    
    for (int i = 0; i < NUMBER_OF_VERTICES_I; ++i) {
-      dist = line_intersection(x1, y1,
-                               x2, y2,
-                               poly_i[i].x, poly_i[i].y,
-                               poly_i[(i+1) % NUMBER_OF_VERTICES_I].x, poly_i[(i+1) % NUMBER_OF_VERTICES_I].y);
-      if (dist < min_dist) {
-         min_dist = dist;
+      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
+                            poly_i[i].x, poly_i[i].y,
+                            poly_i[(i+1) % NUMBER_OF_VERTICES_I].x, poly_i[(i+1) % NUMBER_OF_VERTICES_I].y,
+                            &nx, &ny) >= 0)
+      {
+         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
+         if (dist < min_dist) {
+            min_dist = dist;
+         }
       }
    }
    for (int i = 0; i < NUMBER_OF_VERTICES_A; ++i) {
-      dist = line_intersection(x1, y1,
-                               x2, y2,
-                               poly_a[i].x, poly_a[i].y,
-                               poly_a[(i+1) % NUMBER_OF_VERTICES_A].x, poly_a[(i+1) % NUMBER_OF_VERTICES_A].y);
-      if (dist < min_dist) {
-         min_dist = dist;
+      nx = x1;
+      ny = y1;
+      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
+                            poly_a[i].x, poly_a[i].y,
+                            poly_a[(i+1) % NUMBER_OF_VERTICES_A].x, poly_a[(i+1) % NUMBER_OF_VERTICES_A].y,
+                            &nx, &ny) >= 0)
+      {
+         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
+         if (dist < min_dist) {
+            min_dist = dist;
+         }
       }
    }
    for (int i = 0; i < NUMBER_OF_VERTICES_H; ++i) {
-      dist = line_intersection(x1, y1,
-                               x2, y2,
-                               poly_h[i].x, poly_h[i].y,
-                               poly_h[(i+1) % NUMBER_OF_VERTICES_H].x, poly_h[(i+1) % NUMBER_OF_VERTICES_H].y);
-      if (dist < min_dist) {
-         min_dist = dist;
+      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
+                            poly_h[i].x, poly_h[i].y,
+                            poly_h[(i+1) % NUMBER_OF_VERTICES_H].x, poly_h[(i+1) % NUMBER_OF_VERTICES_H].y,
+                            &nx, &ny) >= 0)
+      {
+         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
+         if (dist < min_dist) {
+            min_dist = dist;
+         }
       }
    }
+
    return min_dist;
 }
 
@@ -355,8 +386,8 @@ int mcl_update(double traveled, int heading, lidar_data_type liddata){
       
       
       //sensor position // 22 je vzdialenost senzora od stredu robota? v cm?
-      double possx = hypo[1-activeHypo][i].x + cos(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 22;
-      double possy = hypo[1-activeHypo][i].y - sin(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 22;
+      double possx = hypo[1-activeHypo][i].x + cos(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 1; // bolo * 22
+      double possy = hypo[1-activeHypo][i].y - sin(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 1; // bolo * 22
       //tag position
       //double minposx;
       //double minposy;
@@ -369,15 +400,22 @@ int mcl_update(double traveled, int heading, lidar_data_type liddata){
        vypocitame pre dany uhol kazdeho luca aka by dlzka mala vyjst
        */
       if (i == 1) {
+         double w_post = hypo[1-activeHypo][i].w;
          for (int j = 0; j < liddata.count; ++j) {
-            uint16_t measured_distance = liddata.distance[j] / 4; // Actual distance = distance_q2 / 4 mm
+            uint16_t measured_distance = liddata.distance[j] / 40; // Actual distance = distance_q2 / 4 mm // but we want distance in cm
             
             uint16_t angle_64 = liddata.angle[j];
             double angle = angle_64 / 64.0;
-            double computed_distance_double = get_min_intersection_dist(possx, possy, possx + cos(angle*M_PI/180.0), possy - sin(angle*M_PI/180.0));
+            
+            double computed_distance_double = get_min_intersection_dist(possx, possy, angle);
             uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
-            //mikes_log_val2(ML_DEBUG, "measured | computed ", measured_distance, computed_distance);
+            
+            w_post = w_post * get_sensor_model(computed_distance, measured_distance);
+            w_post = w_post / (double) NORM_PROB_CONST;
+            
+            
          }
+         mikes_log_double2(ML_DEBUG, "apriori | posterior ", hypo[1-activeHypo][i].w, w_post);
       }
    }
    

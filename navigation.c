@@ -61,7 +61,9 @@ void *navigation_thread(void *arg)
    mikes_log_val(ML_INFO, "original heading: ", original_heading);
    
    reset_counters();
+   
    get_lidar_data(&lidar_data);
+
    
    //    debug_navigation();
    
@@ -70,6 +72,7 @@ void *navigation_thread(void *arg)
    mikes_log(ML_INFO, "navigate: put");
    //    while (!start_automatically)
    //      usleep(10000);
+   
    
    while (program_runs)
    {
@@ -81,7 +84,8 @@ void *navigation_thread(void *arg)
       
       int heading = base_data.heading;
       
-      //mcl_update(10.0, heading, lidar_data);
+      mcl_update(10.0, base_data.heading, lidar_data);
+      
 
       
       usleep(100000);
