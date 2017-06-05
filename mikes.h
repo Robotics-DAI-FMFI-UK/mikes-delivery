@@ -9,6 +9,9 @@
 #define USER_DIR_SPINRIGHT 6
 #define USER_DIR_SPINLEFT 7
 
+#define MAP_W 4578
+#define MAP_H 4303
+
 extern volatile unsigned char program_runs;
 extern volatile unsigned char user_control;
 extern volatile unsigned char user_dir;

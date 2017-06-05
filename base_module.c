@@ -1,6 +1,8 @@
 #include "mikes.h"
 #include "base_module.h"
 #include "mikes_logs.h"
+#include "pose.h"
+#include "util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,14 +95,16 @@ void read_base_packet()
     int numRead;
 
     do {
+		ch = 0;
         if ((numRead = read(fdW[0], &ch, 1)) < 0)
         {
             if (errno != EAGAIN)
             {
                 perror("read()");
+                mikes_log(ML_ERR, "read from base err");
                 exit(-1);
             }
-            else usleep(1);
+            else usleep(2000);
         }
     } while (program_runs && (ch != '$'));
 
@@ -114,12 +118,14 @@ void read_base_packet()
               if (errno != EAGAIN)
               {
                   perror("read()");
+                  mikes_log(ML_ERR, "read from base err2");
                   exit(-1);
               }
-              else { usleep(1); continue; }
+              else { usleep(2000); continue; }
           }
           lnptr += numRead;
           if (lnptr > 1023) break;
+          if (lnptr == 0) continue;
         } while (program_runs && (line[lnptr - 1] != '\n'));
 
         if (lnptr > 0) line[lnptr - 1] = 0;
@@ -127,6 +133,7 @@ void read_base_packet()
         more_packets_in_queue = 0;
         while (program_runs)
         {
+			ch = 0;
             if (read(fdW[0], &ch, 1) < 0)
             {
                 if (errno == EAGAIN) break;
@@ -145,10 +152,11 @@ void read_base_packet()
     } while (program_runs && more_packets_in_queue);
 
     pthread_mutex_lock(&base_module_lock);
-    sscanf(line, "%ld%ld%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd",
+    sscanf(line, "%lu%ld%ld%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd%hd",
+                                  &(local_data.timestamp), 
                                   &(local_data.counterA), &(local_data.counterB), &(local_data.velocityA),
                                   &(local_data.velocityB), &(local_data.dist1), &(local_data.dist2),
-                                  &(local_data.dist3), &(local_data.cube), &(local_data.heading),
+                                  &(local_data.dist3), &(local_data.cube), &(local_data.heading ),
                                   &(local_data.ax), &(local_data.ay), &(local_data.az),
                                   &(local_data.gx), &(local_data.gy), &(local_data.gz));
     new_base_data_arrived = 1;
@@ -243,9 +251,21 @@ void regulated_speed(int left_motor, int right_motor)
 
 void *base_module_thread(void *args)
 {
+	int i = 0;
+	//pose_type pose;
+	
     while (program_runs)
     {
         read_base_packet();
+        //printf("new packet: %ld %ld\n", local_data.counterA, local_data.counterB);
+        update_pose(&local_data);
+        //i++;
+        //if (i == 50) {
+			
+			//get_pose(&pose);
+			//get_grid_location(pose);
+			//i = 0;
+		//}
         usleep(10000);
     }
 
@@ -286,6 +306,16 @@ short angle_difference(short alpha, short beta)
   short diff = beta - alpha;
   if (diff > 180) return diff - 360;
   else if (diff < -180) return diff + 360;
+  return diff;
+}
+
+double angle_rad_difference(double alpha, double beta)
+{
+  beta = rad_normAlpha(beta);
+  alpha = rad_normAlpha(alpha);
+  double diff = beta - alpha;
+  if (diff > M_PI) return diff - 2.0 * M_PI;
+  else if (diff < -M_PI) return diff + 2.0 * M_PI;
   return diff;
 }
 

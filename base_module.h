@@ -7,16 +7,19 @@
 #define WHEEL_DIAMETER_IN_MM          157
 #define WHEEL_PERIMETER_IN_MM         (int)(WHEEL_DIAMETER_IN_MM * M_PI)
 #define COUNTER_TICKS_PER_REVOLUTION  144
+#define WHEELS_DISTANCE 325
 
 #define NO_AZIMUTH 400
 
 // convert counter ticks to mm
-#define COUNTER2MM(COUNTER) (COUNTER * WHEEL_PERIMETER_IN_MM / COUNTER_TICKS_PER_REVOLUTION)
+#define COUNTER2MM(COUNTER) ((COUNTER) * WHEEL_PERIMETER_IN_MM / COUNTER_TICKS_PER_REVOLUTION)
 
 // convert mm to counter ticks
-#define MM2COUNTER(MM) (MM * COUNTER_TICKS_PER_REVOLUTION / WHEEL_PERIMETER_IN_MM)
+#define MM2COUNTER(MM) ((MM) * COUNTER_TICKS_PER_REVOLUTION / WHEEL_PERIMETER_IN_MM)
 
 typedef struct astruct {
+  // microseconds since machine started
+  unsigned long timestamp;
   // 144 ticks per revolution A=left, B=right
   long counterA, counterB;
   // current angular velocity in deg/s
@@ -74,6 +77,9 @@ void set_laziness(unsigned char laziness);
 
 // utility function to compute directional angle from alpha to beta (+/- 180), all values in deg.
 short angle_difference(short alpha, short beta);
+
+// utility function to compute directional angle from alpha to beta (+/- 180), all values in deg.
+double angle_rad_difference(double alpha, double beta);
 
 // utility function to convert the angular counter to travelled distance in mm
 short counter2mm(short counter);

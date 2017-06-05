@@ -4,16 +4,18 @@
 #include <signal.h>
 #include <string.h>
 
+#include "mikes.h"
 #include "public_relations.h"
-//#include "range_sensor.h"
 #include "lidar.h"
 #include "mikes_logs.h"
-#include "navigation.h"
+#include "steering.h"
 #include "gui.h"
 #include "config_mikes.h"
 #include "base_module.h"
 #include "ncurses_control.h"
 #include "mcl.h"
+#include "pose.h"
+#include "planner.h"
 
 volatile unsigned char program_runs;
 static pthread_mutex_t mikes_lock;
@@ -48,12 +50,15 @@ int main(int argc, char **argv)
 
   init_mikes_logs();
   init_public_relations();
+  init_pose(1, MAP_H);
   init_base_module();
+  init_astar();
   init_lidar();
-  init_navigation();
-  init_ncurses_control();
   init_mcl();
-
+  init_planner();
+  init_steering();
+  init_ncurses_control();
+  
   init_gui();
 
   while (program_runs)

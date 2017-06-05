@@ -12,6 +12,9 @@
 #include "mikes_logs.h"
 #include "config_mikes.h"
 
+int mouse_x_click;
+int mouse_y_click;
+
 void gui_fullscreen(Display* dpy, Window win)
 {
   Atom atoms[2] = { XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False), None };
@@ -35,6 +38,8 @@ int gui_cairo_check_event(cairo_surface_t *sfc, int block)
       switch (e.type)
       {
          case ButtonPress:
+            mouse_x_click = e.xbutton.x;
+            mouse_y_click = e.xbutton.y;
             return -e.xbutton.button;
          case KeyPress:
             XLookupString(&e.xkey, keybuf, sizeof(keybuf), &key, NULL);

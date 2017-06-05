@@ -16,6 +16,8 @@
 #include "base_module.h"
 #include "gui.h"
 #include "mcl.h"
+#include "astar.h"
+#include "pose.h"
 
 #define COMPASS_RADIUS 70
 
@@ -37,16 +39,19 @@
 #define RAY_ZERO_TYPE 3
 
 #define MAP_ZOOM_FACTOR_HYPO 1
-#define MAP_ZOOM_FACTOR 1//(MAP_ZOOM_FACTOR_HYPO * 40)
-#define MAP_XOFFSET 0 // -120
-#define MAP_YOFFSET 0 // -270
+#define MAP_ZOOM_FACTOR 1
+#define MAP_XOFFSET 0
+#define MAP_YOFFSET 0
 
 #define SCALE_WEIGHT 0.5
+#define MAX_POSES 100000
 
 int gui_cairo_check_event(cairo_surface_t *sfc, int block);
 void gui_shutdown();
 
-//const int minx = 1, miny = 1, maxx = 8, maxy = 8;
+
+int poses[MAX_POSES][3];
+int actual_pose = 0;
 
 static lidar_data_type lidar_data;
 
@@ -57,7 +62,7 @@ static double guiHeight = 600;
 
 void draw_ray(int i, int ray_type)
 {
-   int x, y, center_x, center_y;
+   int x = 0, y=0, center_x=0, center_y=0;
    if (ray_type == RAY_USUAL_TYPE)
    {
       x = (int)((ENLARGE_CENTER + lidar_data.distance[i]) / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
@@ -67,15 +72,15 @@ void draw_ray(int i, int ray_type)
       cairo_set_source_rgb(gui, 0.1, 0.1, 0.8);
    } else if (ray_type == RAY_AZIMUTH_TYPE)
    {
-      x = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * sin(M_PI * i / 64.0 / 180.0) + guiWidth / 2);
-      y = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * cos(M_PI * i / 64.0 / 180.0) + guiHeight / 2);
+      x = (int)((ENLARGE_CENTER + CROP_DISTANCE) / 32000.0 * guiWidth * 0.45 * sin(M_PI * i / 64.0 / 180.0) + guiWidth / 2);
+      y = (int)((ENLARGE_CENTER + CROP_DISTANCE) / 32000.0 * guiWidth * 0.45 * cos(M_PI * i / 64.0 / 180.0) + guiHeight / 2);
       center_x = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * sin(M_PI * i / 64.0 / 180.0) + guiWidth / 2);
       center_y = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * cos(M_PI * i / 64.0 / 180.0) + guiHeight / 2);
       cairo_set_source_rgb(gui, 0.8, 0.8, 0.3);
    } else if (ray_type == RAY_ZERO_TYPE)
    {
-      x = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
-      y = (int)(CROP_DISTANCE / 32000.0 * guiWidth * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
+      x = (int)((ENLARGE_CENTER + CROP_DISTANCE) / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
+      y = (int)((ENLARGE_CENTER + CROP_DISTANCE) / 32000.0 * guiWidth * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
       center_x = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * sin(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiWidth / 2);
       center_y = (int)(ENLARGE_CENTER / 32000.0 * guiWidth * 0.45 * cos(M_PI * lidar_data.angle[i] / 64.0 / 180.0) + guiHeight / 2);
       cairo_set_source_rgb(gui, 0.8, 0.8, 0.8);
@@ -95,6 +100,8 @@ void *gui_thread(void *arg)
    double cpHeight = 200;
    base_data_type base_data;
    int disp_counter = 0;
+   
+   // load file
    GError *err;
    RsvgHandle *svg_handle = rsvg_handle_new_from_file ("mapa_pavilonu_I.svg", &err);
    if (svg_handle == 0)
@@ -102,9 +109,7 @@ void *gui_thread(void *arg)
       mikes_log(ML_ERR, "could not load svg file");
       mikes_log(ML_ERR, err->message);
    }
-   
-   int intersected = 0;
-   
+      
    while (program_runs)
    {
       disp_counter++;
@@ -122,22 +127,27 @@ void *gui_thread(void *arg)
          
          for (int i = 0; i < lidar_data.count; i++)
          {
-            if (lidar_data.angle[i] > (120 * 64) && lidar_data.angle[i] < (240 * 64)) continue;
-            if (lidar_data.distance[i] == 0) {
+            if (lidar_data.angle[i] > (120 * 64) && lidar_data.angle[i] < (240 * 64))
+				continue;
+				
+            if (lidar_data.distance[i] == 0)
+            {
                draw_ray(i, RAY_ZERO_TYPE);
                continue;
             }
-            if (lidar_data.distance[i] > CROP_DISTANCE) lidar_data.distance[i] = CROP_DISTANCE;
+            
+            if (lidar_data.distance[i] > CROP_DISTANCE)
+				lidar_data.distance[i] = CROP_DISTANCE;
+				
             draw_ray(i, RAY_USUAL_TYPE);
          }
-         
+
          if (get_current_azimuth() != NO_AZIMUTH)
             draw_ray(get_current_azimuth() - base_data.heading, RAY_AZIMUTH_TYPE);
          
          cairo_pop_group_to_source(gui);
          cairo_paint(gui);
          cairo_surface_flush(gui_surface);
-         //gui_cairo_check_event(gui_surface, 0);
          
          /* compass window */
          cairo_push_group(cp_gui);
@@ -167,6 +177,7 @@ void *gui_thread(void *arg)
          
          get_mcl_data(hypo);
          
+         // find largest weight max_w
          double max_w = 0.0;
          for (int i = 0; i < HYPO_COUNT; i++)
          {
@@ -181,64 +192,134 @@ void *gui_thread(void *arg)
             double y = hypo[i].y;
             double alpha = hypo[i].alpha;
             double w;
-            if (max_w >= SCALE_WEIGHT)
-               w = hypo[i].w;
-            else
-               w = (hypo[i].w * SCALE_WEIGHT) / max_w;
             
+            // skalovanie vahy pre ucely vyraznejsieho vykreslenia, ak su vsetky vahy mensie ako SCALE_WEIGHT
+            //if (max_w >= SCALE_WEIGHT)
+               //w = hypo[i].w;
+            //else
+               //w = (hypo[i].w * SCALE_WEIGHT) / max_w;
+            
+            // hypo robot position int T shape
             cairo_set_source_rgb(map_gui, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1, 1 - w*0.8 - 0.1);
-            cairo_set_line_width(map_gui, 3);
+            cairo_set_line_width(map_gui, 6);
             
-            cairo_set_line_width(map_gui, 10);
-            double hypoax = 5*cos(M_PI * alpha / 180);
-            double hypoay = -5*sin(M_PI * alpha / 180);
-            
-            cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
-            cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+            double hypoax = 50*sin(M_PI * alpha / 180.0);
+            double hypoay = -50*cos(M_PI * alpha / 180.0);
+            cairo_move_to(map_gui, (int) (x),          (int) (y));
+            cairo_line_to(map_gui, (int) (x + hypoax), (int) (y + hypoay));
             cairo_stroke(map_gui);
             
-            hypoax = 3*cos(M_PI * alpha / 180 + M_PI/2);
-            hypoay = -3*sin(M_PI * alpha / 180 + M_PI/2);
-            cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
-            cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+            hypoax = 30*sin(M_PI * alpha / 180.0 + M_PI/2.0);
+            hypoay = -30*cos(M_PI * alpha / 180.0 + M_PI/2.0);
+            cairo_move_to(map_gui, (int) (x),          (int) (y));
+            cairo_line_to(map_gui, (int) (x + hypoax), (int) (y + hypoay));
             cairo_stroke(map_gui);
             
-            hypoax = 3*cos(M_PI * alpha / 180-M_PI/2);
-            hypoay = -3*sin(M_PI * alpha / 180- M_PI/2);
-            cairo_move_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET),        (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET));
-            cairo_line_to(map_gui, (int) (x * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_XOFFSET+hypoax), (int) (y * MAP_ZOOM_FACTOR_HYPO + MAP_ZOOM_FACTOR + MAP_YOFFSET + hypoay));
+            hypoax = 30*sin(M_PI * alpha / 180.0 - M_PI/2.0);
+            hypoay = -30*cos(M_PI * alpha / 180.0 - M_PI/2.0);
+            cairo_move_to(map_gui, (int) (x),          (int) (y));
+            cairo_line_to(map_gui, (int) (x + hypoax), (int) (y + hypoay));
             cairo_stroke(map_gui);
             
          }
          
-         //pomocne vykreslovanie
+         // draw grid map
+         for (int row = 0; row < STATES_H; ++row) {
+            for (int col = 0; col < STATES_W; ++col) {
+               if (WorldAt(col, row) == 1)
+               {
+				  int wrow = row*STATE_WIDTH;
+				  int wcol = col*STATE_WIDTH;
+				  cairo_set_source_rgba(map_gui, 1, 0.1, 0.1, 0.4);
+                  cairo_set_line_width(map_gui, 0);
+                  
+                  cairo_rectangle(map_gui, wcol, wrow, STATE_WIDTH, STATE_WIDTH);
+                  cairo_fill(map_gui);
+               }
+            }
+         }
          
-//         get_lidar_data(&lidar_data);
-//
-//         for (int i = 0; i < 1; ++i) {
-//
-//            double possx = hypo[i].x + cos(hypo[i].alpha*M_PI/180.0) * 1;
-//            double possy = hypo[i].y - sin(hypo[i].alpha*M_PI/180.0) * 1;
-//
-//            for (int j = 0; j < lidar_data.count; ++j) {
-//               uint16_t measured_distance = lidar_data.distance[j] / 40; // Actual distance = distance_q2 / 4 mm // but we want distance in cm
-//
-//               uint16_t angle_64 = lidar_data.angle[j];
-//               double angle = angle_64 / 64.0;
-//
-//               cairo_set_line_width(map_gui, 3);
-//               cairo_set_source_rgb(map_gui, 0.1, 0.1, 1);
-//               cairo_move_to(map_gui, possx, possy);
-//               cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * measured_distance), possy - (sin(angle*M_PI/180.0) * measured_distance));
-//
-//               double computed_distance_double = get_min_intersection_dist(possx, possy, angle);
-////               cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * computed_distance_double), possy - (sin(angle*M_PI/180.0) * computed_distance_double));
-//
-////               uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
-////               mikes_log_double2(ML_DEBUG, "possx | possy ", possx, possy);
-//               mikes_log_double2(ML_DEBUG, "measured | computed ", measured_distance, computed_distance_double);
-//            }
-//         }
+         
+         /*
+         get_lidar_data(&lidar_data);
+
+         for (int i = 0; i < 1; ++i) {
+
+            double possx = hypo[i].x + cos(hypo[i].alpha*M_PI/180.0) * 1;
+            double possy = hypo[i].y - sin(hypo[i].alpha*M_PI/180.0) * 1;
+
+            for (int j = 0; j < lidar_data.count; ++j) {
+               uint16_t measured_distance = lidar_data.distance[j] / 40; // Actual distance = distance_q2 / 4 mm // but we want distance in cm
+
+               uint16_t angle_64 = lidar_data.angle[j];
+               double angle = angle_64 / 64.0;
+
+               cairo_set_line_width(map_gui, 3);
+               cairo_set_source_rgb(map_gui, 0.1, 0.1, 1);
+               cairo_move_to(map_gui, possx, possy);
+               //cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * measured_distance), possy - (sin(angle*M_PI/180.0) * measured_distance));
+
+               double computed_distance_double = get_min_intersection_dist(possx, possy, angle);
+               cairo_line_to(map_gui, possx + (cos(angle*M_PI/180.0) * computed_distance_double), possy - (sin(angle*M_PI/180.0) * computed_distance_double));
+
+//               uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
+//               mikes_log_double2(ML_DEBUG, "possx | possy ", possx, possy);
+               mikes_log_double2(ML_DEBUG, "measured | computed ", measured_distance, computed_distance_double);
+            }
+         }
+         */
+         
+         // pose test
+
+         pose_type apose;
+         get_pose(&apose);
+         
+         mikes_log_double2(ML_DEBUG, "windows: pose x y: ", apose.x, apose.y);
+		 mikes_log_double(ML_DEBUG, "windows: pose heading: ", apose.heading);
+         
+         cairo_set_line_width(map_gui, 3);
+		 cairo_set_source_rgb(map_gui, 0.1, 0.1, 0.1);
+		 cairo_move_to(map_gui, apose.x, apose.y);
+		 cairo_line_to(map_gui, apose.x + 50*sin(apose.heading), apose.y - 50*cos(apose.heading));
+		 cairo_stroke(map_gui);
+         
+         
+         // poses    
+         /*     
+         poses[actual_pose][0] = apose.x / 10;
+         poses[actual_pose][1] = apose.y / 10;
+         poses[actual_pose][2] = apose.heading;
+         actual_pose = (actual_pose + 1) % MAX_POSES;
+         
+         for(int i = 0; i < 100000; i++)
+         {
+             //mikes_log_double2(ML_DEBUG, "windows: pose x y: ", apose.x, apose.y);
+		     //mikes_log_double(ML_DEBUG, "windows: pose heading: ", apose.heading);
+			 if (poses[i][0] == 0 || poses[i][1] == 0)
+				 continue;
+			 cairo_set_line_width(map_gui, 3);
+             cairo_set_source_rgb(map_gui, 0.1, 0.1, 0.1);
+             cairo_move_to(map_gui, poses[i][0], poses[i][1]);
+             cairo_line_to(map_gui, poses[i][0] + 5*sin(poses[i][2]), poses[i][1] - 5*cos(poses[i][2]));
+             cairo_stroke(map_gui);
+		 }
+         */
+         
+         // A*
+         if (path_len > 0)
+         {
+			 mikes_log_val(ML_INFO, "windows: path lenght", path_len);
+			 for(int i = 0; i < path_len; ++i)
+			 {
+				  cairo_set_source_rgba(map_gui, 0.1, 0.1, 1, 0.4);
+                  cairo_set_line_width(map_gui, 0);
+                  
+                  cairo_rectangle(map_gui, path[i][1]*STATE_WIDTH, path[i][0]*STATE_WIDTH, STATE_WIDTH, STATE_WIDTH);
+                  cairo_fill(map_gui);
+			 }
+		 } else
+			mikes_log_val(ML_INFO, "windows: path lenght err", path_len);
+		 
          
          cairo_pop_group_to_source(map_gui);
          cairo_paint(map_gui);
@@ -281,7 +362,9 @@ void *gui_thread(void *arg)
             break;
             
          case LEFT_MOUSE_BUTTON:
-            user_control = 1 - user_control;
+            //user_control = 1 - user_control;
+            printf("click: %d, %d\n", mouse_x_click * 8 - 100, mouse_y_click * 8 - 100);
+            printf("row: %d, col: %d\n", (mouse_y_click * 8 - 100) / STATE_WIDTH, (mouse_x_click * 8 - 100) / STATE_WIDTH);
             break;
             
             //default:

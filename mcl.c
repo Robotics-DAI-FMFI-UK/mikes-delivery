@@ -3,38 +3,55 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include <libxml/xmlreader.h>
+#include <unistd.h>
+#include <stdio.h>
 
+#include "mikes.h"
 #include "mikes_logs.h"
+#include "config_mikes.h"
+#include "util.h"
 #include "mcl.h"
+#include "astar.h"
+#include "base_module.h"
+#include "pose.h"
 
+#define POSTERIOR_CONST 0.95
 
-#define NUMBER_OF_VERTICES 163
-#define NUMBER_OF_VERTICES_I 101
-#define NUMBER_OF_VERTICES_A 49
-#define NUMBER_OF_VERTICES_H 13
-#define ROOM_I 1
-#define ROOM_ATRIUM 2
-#define ROOM_H3_H6 3
+#define MCL_UPDATE_MAX_PERIOD  10
 
-#define NORM_PROB_CONST 0.2
+#define MAX_CLUSTER_COUNT  HYPO_COUNT
+#define MAX_SAME_CLUSTER_DISTANCE_SQ  10000
+#define MAX_SAME_CLUSTER_ANGLE_DISTANCE 120
 
 pthread_mutex_t lidar_mcl_lock;
 
 hypo_t hypo[2][HYPO_COUNT];
+hypo_t current_hypo[HYPO_COUNT];
 point poly_i[NUMBER_OF_VERTICES_I]; // pavilon I
 point poly_a[NUMBER_OF_VERTICES_A]; // atrium
 point poly_h[NUMBER_OF_VERTICES_H]; // miestnosti H3 a H6
 
-//line lines[NUMBER_OF_VERTICES]; //vsetky ciary z mapy //TODO
-
-int vert_n_i;
-int vert_n_a;
-int vert_n_h;
+line lines[NUMBER_OF_VERTICES]; //vsetky ciary z mapy
 
 int activeHypo = 0;
 
-int pnpoly(int n_vert, point *vertices, double test_x, double test_y)
+short hypo_cluster[HYPO_COUNT];
+unsigned short cluster_count;
+
+int cluster_representant_x[MAX_CLUSTER_COUNT];   // indexed by cluster id
+int cluster_representant_y[MAX_CLUSTER_COUNT];
+double cluster_representant_alpha[MAX_CLUSTER_COUNT];
+
+double cluster_weight_sum[MAX_CLUSTER_COUNT];
+int cluster_hypo_count[MAX_CLUSTER_COUNT];
+
+double cluster_x;
+double cluster_y;
+double cluster_alpha;
+
+pose_type old_pose;
+
+int point_in_polygon(int n_vert, point *vertices, double test_x, double test_y)
 {
    int i, j = 0;
    bool c = false;
@@ -49,115 +66,53 @@ int pnpoly(int n_vert, point *vertices, double test_x, double test_y)
 }
 
 int is_in_corridor(int cx, int cy) {
-   if (pnpoly(vert_n_i, poly_i, cx, cy)
-       && !pnpoly(vert_n_a, poly_a, cx, cy)
-       && !pnpoly(vert_n_h, poly_h, cx, cy))
+   if (!point_in_polygon(NUMBER_OF_VERTICES_A, poly_a, cx, cy)
+       && !point_in_polygon(NUMBER_OF_VERTICES_H, poly_h, cx, cy) 
+       && point_in_polygon(NUMBER_OF_VERTICES_I, poly_i, cx, cy))
       return 1;
    else
       return 0;
 }
 
-static int parse_element(xmlNode* a_node, point* points, int room)
+const double epsilon = 0.000001;
+
+void swap(double *a, double *b)
 {
-   xmlNode *cur_node = NULL;
-   int start_line_id;
-   int end_line_id;
-   
-   switch (room) {
-      case ROOM_I:
-         start_line_id = 0;
-         end_line_id = 100;
-         break;
-      case ROOM_ATRIUM:
-         start_line_id = 101;
-         end_line_id = 149;
-         break;
-      case ROOM_H3_H6:
-         start_line_id = 150;
-         end_line_id = 162;
-         break;
-      default:
-         mikes_log(ML_ERR, "Wrong ROOM_ while parsing svg map.");
-         break;
-   }
-   
-   int i = 0;
-   
-   for (cur_node = a_node; cur_node; cur_node = cur_node->next)
-   {
-      if (cur_node->type == XML_ELEMENT_NODE)
-      {
-         if (xmlStrEqual(cur_node->name, (const xmlChar *) "line")
-             && xmlGetProp(cur_node, (const xmlChar *) "lineId") != NULL
-             && atoi((const char *) xmlGetProp(cur_node, (const xmlChar *) "lineId")) >= start_line_id
-             && atoi((const char *) xmlGetProp(cur_node, (const xmlChar *) "lineId")) <= end_line_id)
-         {
-            
-            xmlChar *x1 = xmlGetProp(cur_node, (const xmlChar *) "x1");
-            xmlChar *y1 = xmlGetProp(cur_node, (const xmlChar *) "y1");
-            //xmlChar *x2 = xmlGetProp(cur_node, (const xmlChar *) "x2");
-            //xmlChar *y2 = xmlGetProp(cur_node, (const xmlChar *) "y2");
-            //xmlChar *lineId = xmlGetProp(cur_node, (const xmlChar *) "lineId");
-            points[i].x = (double) atoi((const char *) x1);
-            points[i].y = (double) atoi((const char *) y1);
-            ++i;
-            //printf("Line %i: x1 = %s y1 = %s x2 = %s y2 = %s\n", atoi((const char *) lineId), x1, y1, x2, y2);
-         }
-      }
-   }
-   return i;
+	double p = *a;
+	*a = *b;
+	*b = p;
 }
 
-
-int get_polygon_from_file(point *buffer, const char *filename, int room) {
-   
-   xmlDoc *doc = NULL;
-   xmlNode *root_element = NULL;
-   
-   /*
-    * this initialize the library and check potential ABI mismatches
-    * between the version it was compiled for and the actual shared
-    * library used.
-    */
-   LIBXML_TEST_VERSION
-   
-   /*parse the file and get the DOM */
-   doc = xmlReadFile(filename, NULL, 0);
-   
-   if (doc == NULL) {
-      mikes_log(ML_ERR, "SVG parse error: could not parse svg file");
-   }
-   
-   /*Get the root element node */
-   root_element = xmlDocGetRootElement(doc);
-   
-   int vert_n = parse_element(root_element->children, buffer, room);
-   
-   /* free the document */
-   xmlFreeDoc(doc);
-   /* Free the global variables that may have been allocated by the parser. */
-   xmlCleanupParser();
-   
-   return vert_n;
-}
-
-int fsame(double a, double b)
+void reduce(double x1, double x2, double *x3, double *x4)
 {
-   const double epsilon = 0.000000001;
-   return (fabs(a-b) < epsilon);
+	if (*x3 > x1)
+	{
+		if (*x3 < x2) *x3 = x1;
+		else *x3 -= (x2 - x1);
+	}
+	if (*x4 > x1)
+	{
+		if (*x4 < x2) *x4 = x1;
+		else *x4 -= (x2 - x1);
+	}
 }
 
-
-//  public domain function by Darel Rex Finley, 2006
-
-
-
-//  Determines the intersection point of the line defined by points A and B with the
-//  line defined by points C and D.
-//
-//  Returns ABpos if the intersection point was found.
-//  Returns -1/-2 if there is no determinable intersection point.
-//  source: http://alienryderflex.com/intersect/
+int check_bouding_box_intersect(double x1, double y1, double x2, double y2, double x3, double y3, double x4, double y4)
+{
+	if (x2 < x1) swap(&x1, &x2);
+	if (y2 < y1) swap(&y1, &y2);
+	if (x4 < x3) swap(&x3, &x4);
+	if (y4 < y3) swap(&y3, &y4);
+	
+	reduce(x1, x2, &x3, &x4);
+	reduce(y1, y2, &y3, &y4);
+	
+	if((x3 <= x1) && (x4 >= x1) &&
+	   (y3 <= y1) && (y4 >= y1))
+		return 1;
+	else
+		return 0;
+}
 
 double line_intersection(
                          double x1, double y1,
@@ -165,7 +120,11 @@ double line_intersection(
                          double x3, double y3,
                          double x4, double y4,
                          double *X, double *Y)
-{
+{	
+
+   if (!check_bouding_box_intersect(x1,y1,x2,y2,x3,y3,x4,y4))
+      return -3;
+      
    double A1 = y2 - y1;
    double B1 = x1 - x2;
    double C1 = A1 * x1 + B1 * y1;
@@ -181,14 +140,14 @@ double line_intersection(
    } else {
       double x = (B2*C1 - B1*C2)/det;
       double y = (A1*C2 - A2*C1)/det;
-      if ((fsame(x, fmin(x1,x2)) || fmin(x1,x2) < x)
-          && (fsame(x, fmax(x1,x2)) || x < fmax(x1,x2))
-          && (fsame(y, fmin(y1,y2)) || fmin(y1,y2) < y)
-          && (fsame(y, fmax(y1,y2)) || y < fmax(y1,y2))
-          && (fsame(x, fmin(x3,x4)) || fmin(x3,x4) < x)
-          && (fsame(x, fmax(x3,x4)) || x < fmax(x3,x4))
-          && (fsame(y, fmin(y3,y4)) || fmin(y3,y4) < y)
-          && (fsame(y, fmax(y3,y4)) || y < fmax(y3,y4)))
+      if ((fmin(x1,x2) < (x + epsilon))
+          && (x < (fmax(x1,x2) + epsilon))
+          && (fmin(y1,y2) < (y + epsilon))
+          && (y < (fmax(y1,y2) + epsilon))
+          && (fmin(x3,x4) < (x + epsilon))
+          && (x < (fmax(x3,x4) + epsilon))
+          && (fmin(y3,y4) < (y + epsilon))
+          && (y < (fmax(y3,y4) + epsilon)))
       {
          *X = x;
          *Y = y;
@@ -198,80 +157,43 @@ double line_intersection(
    }
 }
 
-double get_sensor_model(double d, double x) {
+int get_line_intersection(double x1, double y1, double x2, double y2) {
    
-   double sigma = d / 100.0;
+   double nx = 0;
+   double ny = 0;
    
-   double exponent = pow(x - d, 2) / (2 * pow(sigma, 2));
-   double result = exp(-exponent) / (sigma * sqrt(2 * M_PI));
-   
-   return result;
-}
-
-int init_mcl(){
-   pthread_mutex_init(&lidar_mcl_lock, 0);
-   
-   // seed random generator
-   time_t t;
-   srand((unsigned) time(&t));
-   
-   // get vertices of polygons from file
-   vert_n_i = get_polygon_from_file(poly_i, "mapa_pavilonu_I.svg", ROOM_I);
-   vert_n_a = get_polygon_from_file(poly_a, "mapa_pavilonu_I.svg", ROOM_ATRIUM);
-   vert_n_h = get_polygon_from_file(poly_h, "mapa_pavilonu_I.svg", ROOM_H3_H6);
-   
-//   mikes_log_val(ML_INFO, "vert_n_i = ", vert_n_i);
-//   mikes_log_val(ML_INFO, "vert_n_a = ", vert_n_a);
-//   mikes_log_val(ML_INFO, "vert_n_h = ", vert_n_h);
-   
-   for (int i = 0; i < HYPO_COUNT; i++){
-      
-      double rand_x = 0;
-      double rand_y = 0;
-      
-      do {
-         rand_x = rand() % MAP_W;
-         rand_y = rand() % MAP_H;
-      } while (!is_in_corridor(rand_x, rand_y));
-      
-      
-      hypo[0][i].x = hypo[1][i].x = rand_x;
-      hypo[0][i].y = hypo[1][i].y = rand_y;
-      hypo[0][i].alpha = hypo[1][i].alpha = rand() % 360;
-      double hypo_count_d = (double) HYPO_COUNT;
-      hypo[0][i].w = hypo[1][i].w = 1 / hypo_count_d;
-      
-      //        mikes_log_val(ML_INFO, "hypo id: ", i);
-      //        mikes_log_double2(ML_INFO, "hypo pos: ", hypo[0][i].x,hypo[0][i].y);
-      //        mikes_log_double2(ML_INFO, "hypo v&a: ", hypo[0][i].w,hypo[0][i].alpha);
-      
-      
+   for (int i = 0; i < NUMBER_OF_VERTICES; ++i)
+   {
+		int li = line_intersection(x1, y1, x2, y2, lines[i].x1, lines[i].y1, lines[i].x2, lines[i].y2, &nx, &ny);
+		if (li > 0)
+			return 1;
    }
    
-//   for (int i = 0; i < 200; ++i) {
-//      mikes_log_double(ML_DEBUG, "gaussian probability", get_sensor_model(100.0, (double) i));
-//   }
    return 0;
+}
+
+static double sqrt_2PI;
+
+double get_sensor_model(double d, double x) {
+   
+   double sigma = sqrt(2); 
+   double scale_input = 40;  // in cm
+   
+   d /= scale_input;
+   x /= scale_input;
+   
+   double exponent = (x - d) * (x - d) / (2 * sigma * sigma);
+   double result = exp(-exponent) / (sigma * sqrt_2PI);
+   
+   return result;
 }
 
 void get_mcl_data(hypo_t *buffer)
 {
    pthread_mutex_lock(&lidar_mcl_lock);
-   memcpy(buffer, hypo[activeHypo], sizeof(hypo_t) * HYPO_COUNT);
+   memcpy(buffer, current_hypo, sizeof(hypo_t) * HYPO_COUNT);
    pthread_mutex_unlock(&lidar_mcl_lock);
 }
-
-double normAlpha(double alpha){
-   if(alpha < 0){
-      while(alpha < 0)
-         alpha += 360;
-   }
-   else
-      while(alpha >= 360)
-         alpha -= 360;
-   return alpha;
-}
-
 
 double generateGaussianNoise(double mu, double sigma)
 {
@@ -298,125 +220,241 @@ double generateGaussianNoise(double mu, double sigma)
    return z0 * sigma + mu;
 }
 
+static double max_dist = 600*600;
+
 double get_min_intersection_dist(double x1, double y1, double alpha) {
    
-   double lm = MAP_H * MAP_H; // max lenght for line segment
-   double min_dist = MAP_H * MAP_W;
-   double dist = MAP_H * MAP_W;
+   double lm = max_dist;
+   double min_dist = max_dist;
+   double dist = max_dist;
    
-   double cosa = cos(alpha * M_PI / 180.0);
-   double sina = sin(alpha * M_PI / 180.0);
+   double x2 = x1 + lm*sin(alpha);
+   double y2 = y1 - lm*cos(alpha);
    
    double nx = x1;
    double ny = y1;
    
-   for (int i = 0; i < NUMBER_OF_VERTICES_I; ++i) {
-      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
-                            poly_i[i].x, poly_i[i].y,
-                            poly_i[(i+1) % NUMBER_OF_VERTICES_I].x, poly_i[(i+1) % NUMBER_OF_VERTICES_I].y,
-                            &nx, &ny) >= 0)
-      {
-         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
-         if (dist < min_dist) {
-            min_dist = dist;
-         }
-      }
-   }
-   for (int i = 0; i < NUMBER_OF_VERTICES_A; ++i) {
-      nx = x1;
-      ny = y1;
-      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
-                            poly_a[i].x, poly_a[i].y,
-                            poly_a[(i+1) % NUMBER_OF_VERTICES_A].x, poly_a[(i+1) % NUMBER_OF_VERTICES_A].y,
-                            &nx, &ny) >= 0)
-      {
-         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
-         if (dist < min_dist) {
-            min_dist = dist;
-         }
-      }
-   }
-   for (int i = 0; i < NUMBER_OF_VERTICES_H; ++i) {
-      if (line_intersection(x1, y1, x1 + cosa*lm, y1 - sina*lm,
-                            poly_h[i].x, poly_h[i].y,
-                            poly_h[(i+1) % NUMBER_OF_VERTICES_H].x, poly_h[(i+1) % NUMBER_OF_VERTICES_H].y,
-                            &nx, &ny) >= 0)
-      {
-         dist = sqrt(pow((nx - x1), 2) + pow((ny - y1), 2));
-         if (dist < min_dist) {
-            min_dist = dist;
-         }
-      }
+   for (int i = 0; i < NUMBER_OF_VERTICES; ++i) {
+	   if (line_intersection(x1, y1, x2, y2, lines[i].x1, lines[i].y1, lines[i].x2, lines[i].y2, &nx, &ny) > 0)
+	   {
+		   dist = (nx - x1)*(nx - x1) + (ny - y1)*(ny - y1);
+		   if (dist < min_dist)
+			   min_dist = dist;
+	   }
+	   
    }
 
-   return min_dist;
+   return sqrt(min_dist);
+   
 }
 
-double getp( double x, double y){
-   return fmax(-0.001*abs(x*x + 4*y*y) + 0.9, 0);
+#define KLARGEST   (HYPO_COUNT * 14 / 15)
+#define CLUSTERED_HYPOTHESES_RATIO  0.7
+
+double largest_values[KLARGEST];
+
+double find_kth_largest_hypothesis_weight()
+{
+   for (int i = 0; i < KLARGEST; i++)
+      largest_values[i] = hypo[activeHypo][i].w;
+   for (int i = 0; i < KLARGEST; i++)
+   {
+      int minimal = i;
+      for (int j = i + 1; j < KLARGEST; j++)
+         if (largest_values[j] < largest_values[minimal])
+            minimal = j;
+      double tmp = largest_values[i];
+      largest_values[i] = largest_values[minimal];
+      largest_values[minimal] = tmp;
+   }
+   for (int i = KLARGEST; i < HYPO_COUNT; i++)
+   {
+     int better_than = 0;
+     double weight = hypo[activeHypo][i].w;
+     while ((better_than < KLARGEST) && (weight > largest_values[better_than])) 
+       better_than++;
+     if (better_than > 0)
+     {
+        for (int j = 0; j < better_than - 1; j++)
+          largest_values[j] = largest_values[j + 1];
+        largest_values[better_than - 1] = weight;
+     }
+  }
+  return largest_values[0];
 }
 
-int mcl_update(double traveled, int heading, lidar_data_type liddata){
+
+void estimate_pose()
+{
+   cluster_count = 0;
+   double weight_threshold = CLUSTERED_HYPOTHESES_RATIO * find_kth_largest_hypothesis_weight();
+
+   int hypotheses_considered = 0;
+
+   for (int i = 0; i < HYPO_COUNT; i++)
+   {
+      double weight = hypo[activeHypo][i].w;
+      if (weight < weight_threshold) 
+      {
+          hypo_cluster[i] = -1;
+          continue;
+      }
+      hypotheses_considered++;
+
+      double x = hypo[activeHypo][i].x;
+      double y = hypo[activeHypo][i].y;
+      double alpha = hypo[activeHypo][i].alpha;
+      int belongs_to_cluster = -1;
+      for (int clus = 0; clus < cluster_count; clus++)
+      {
+         long dsquared = (cluster_representant_x[clus] - x);
+         dsquared *= dsquared;
+         long ysq = (cluster_representant_y[clus] - y);
+         dsquared =+ ysq * ysq;
+         double alphadiff = angle_rad_difference(cluster_representant_alpha[clus], alpha);
+
+         if ((dsquared < MAX_SAME_CLUSTER_DISTANCE_SQ) && (alphadiff < MAX_SAME_CLUSTER_ANGLE_DISTANCE))
+         {
+                belongs_to_cluster = clus;
+                break;
+         }
+      }
+      if (belongs_to_cluster == -1)
+      {
+         cluster_representant_x[cluster_count] = x;
+         cluster_representant_y[cluster_count] = y;
+         cluster_representant_alpha[cluster_count] = alpha;
+         cluster_weight_sum[cluster_count] = 0.0;
+         cluster_hypo_count[cluster_count] = 0;
+	 belongs_to_cluster = cluster_count++;
+      }
+         
+      hypo_cluster[i] = belongs_to_cluster;
+      cluster_weight_sum[belongs_to_cluster] += weight;
+      cluster_hypo_count[belongs_to_cluster]++;
+   } 
+   mikes_log_val(ML_INFO, "MCL hypotheses considered", hypotheses_considered);
+
+   int best_average_cluster = 0;
+   double best_average_cluster_weight = 0.0;
+
+   for (int i = 1; i < cluster_count; i++)
+   {
+      double average_cluster_weight = cluster_weight_sum[i] / cluster_hypo_count[i];
+      if (average_cluster_weight > best_average_cluster_weight)
+      {
+         best_average_cluster_weight = average_cluster_weight;
+         best_average_cluster = i;
+      }
+   }
+        
+   double best_cluster_weight_sum = cluster_weight_sum[best_average_cluster];
+   cluster_x = 0.0;
+   cluster_y = 0.0;
+   cluster_alpha = 0.0;
+
+   for (int i = 0; i < HYPO_COUNT; i++)
+   {
+      if (hypo_cluster[i] != best_average_cluster) continue;
+
+      double weight = hypo[activeHypo][i].w;
+      double hypo_contributing_ratio = (weight / best_cluster_weight_sum);
+      
+      cluster_x += hypo_contributing_ratio * hypo[activeHypo][i].x;
+      cluster_y += hypo_contributing_ratio * hypo[activeHypo][i].y;
+      cluster_alpha += hypo_contributing_ratio * hypo[activeHypo][i].alpha;
+   }
+
+   mikes_log_double2(ML_INFO, "MCL estimated pose at x,y:", cluster_x, cluster_y);
+   mikes_log_double(ML_INFO, "                    alpha:", cluster_alpha);
+   pose_type new_pose;
+
+   get_pose(&new_pose);
+
+   cluster_x += new_pose.x - old_pose.x;
+   cluster_y += new_pose.y - old_pose.y;
+   cluster_alpha += angle_rad_difference(old_pose.heading, new_pose.heading);
+   //set_pose(cluster_x, cluster_y, cluster_alpha);
+}
+
+int mcl_update()
+{
+   lidar_data_type liddata;
+
+   get_lidar_data(&liddata);
+   get_pose(&old_pose);
+
+   double vect_x = fabs(old_pose.x - cluster_x);
+   double vect_y = fabs(old_pose.y - cluster_y);
+
+   double dist =  vect_x*vect_x + vect_y*vect_y;
+   double traveled =  sqrt(dist); 
+
+   double heading = old_pose.heading - cluster_alpha;
+
    mikes_log_double(ML_INFO, "MCL New data - traveled:", traveled);
    mikes_log_val(ML_INFO, "MCL New data - heading:", heading);
+
+   long start_mcl_timestamp = usec_time();
    
-   pthread_mutex_lock(&lidar_mcl_lock);
    activeHypo = 1-activeHypo;
    
-//   // ML_DEBUG
 //   for(int i = 0; i < HYPO_COUNT; i++){
 //      mikes_log_val(ML_DEBUG, "hypo id premove: ", i);
 //      mikes_log_val2(ML_DEBUG, "hypo pos: ", hypo[1-activeHypo][i].x,hypo[1-activeHypo][i].y);
 //      mikes_log_val2(ML_DEBUG, "hypo v&a: ", hypo[1-activeHypo][i].w*100,hypo[1-activeHypo][i].alpha);
 //   }
    
-   // poposuvame bodky podla pohybu a ratame pravdepodobnost
-   for (int i = 0; i < HYPO_COUNT; i++) {
+   double max_hypo_prob = 0;
+   
+   for (int i = 0; i < HYPO_COUNT; i++)
+   {
       
-      double alpha_h = normAlpha(hypo[1-activeHypo][i].alpha+heading);
-      hypo[1-activeHypo][i].x += traveled * cos(alpha_h * M_PI/180.0);
-      hypo[1-activeHypo][i].y -= traveled * sin(alpha_h * M_PI/180.0);
-      hypo[1-activeHypo][i].alpha = alpha_h;
-      
-      // ak bodka vysla z chodby, tak vahu bodke nastavime na nulu a dalej nepokracujeme
+      hypo[1-activeHypo][i].x += vect_x;
+      hypo[1-activeHypo][i].y -= vect_y;
+      hypo[1-activeHypo][i].alpha = rad_normAlpha(hypo[1-activeHypo][i].alpha+heading);
+         
+      // point outside of the corridor
       if(!is_in_corridor(hypo[1-activeHypo][i].x, hypo[1-activeHypo][i].y)) {
          hypo[1-activeHypo][i].w = 0;
          continue;
-      }
+      }      
       
+      //sensor position
+      double possx = hypo[1-activeHypo][i].x + sin(hypo[1-activeHypo][i].alpha) * 7;
+      double possy = hypo[1-activeHypo][i].y - cos(hypo[1-activeHypo][i].alpha) * 7;
       
-      //sensor position // 22 je vzdialenost senzora od stredu robota? v cm?
-      double possx = hypo[1-activeHypo][i].x + cos(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 1; // bolo * 22
-      double possy = hypo[1-activeHypo][i].y - sin(hypo[1-activeHypo][i].alpha*M_PI/180.0) * 1; // bolo * 22
-      //tag position
-      //double minposx;
-      //double minposy;
-      
-      
-      // ratame pravdepodobnost ze sa robot vyskytuje na danej bodke
-      /*
-       porovname kazdy luc aky je namerany a aky by pre tuto danu bodku mal vyjst.
-       dlzku nameraneho luca vieme, aj uhol
-       vypocitame pre dany uhol kazdeho luca aka by dlzka mala vyjst
-       */
-      if (i == 1) {
-         double w_post = hypo[1-activeHypo][i].w;
-         for (int j = 0; j < liddata.count; ++j) {
+      double w_post = hypo[1-activeHypo][i].w;
+      for (int j = 0; j < liddata.count; ++j) 
+      {
             uint16_t measured_distance = liddata.distance[j] / 40; // Actual distance = distance_q2 / 4 mm // but we want distance in cm
+            if (measured_distance == 0 || (liddata.angle[j] > (120 * 64) && liddata.angle[j] < (240 * 64)))
+				continue;
+  	        if (measured_distance > 600)
+		    measured_distance = 600;
             
             uint16_t angle_64 = liddata.angle[j];
-            double angle = angle_64 / 64.0;
+            double angle = (angle_64 / 64.0) / 180.0 * M_PI;
             
-            double computed_distance_double = get_min_intersection_dist(possx, possy, angle);
-            uint16_t computed_distance = (uint16_t) (computed_distance_double * 10);
+            uint16_t computed_distance = (uint16_t) get_min_intersection_dist(possx, possy, angle);
+            double smodel = get_sensor_model(computed_distance, measured_distance);
             
-            w_post = w_post * get_sensor_model(computed_distance, measured_distance);
-            w_post = w_post / (double) NORM_PROB_CONST;
-            
-            
-         }
-         mikes_log_double2(ML_DEBUG, "apriori | posterior ", hypo[1-activeHypo][i].w, w_post);
+	        double w_post_new = w_post * smodel;
+	        w_post_new = w_post_new / (double) NORM_PROB_CONST;
+	        w_post = POSTERIOR_CONST*w_post + (1-POSTERIOR_CONST)*w_post_new;
       }
+         
+      mikes_log_double2(ML_DEBUG, "apriori | posterior ", hypo[1-activeHypo][i].w, w_post);
+         
+      if (w_post > max_hypo_prob)
+			 max_hypo_prob = w_post;
+			
+      hypo[1-activeHypo][i].w = w_post;
+   }
+   
+   for (int i = 0; i < HYPO_COUNT; i++)
+   {
+	   hypo[1-activeHypo][i].w /= max_hypo_prob;
    }
    
    
@@ -426,33 +464,33 @@ int mcl_update(double traveled, int heading, lidar_data_type liddata){
 //      mikes_log_val2(ML_DEBUG, "hypo v&a: ", hypo[1-activeHypo][i].w*100,hypo[1-activeHypo][i].alpha);
 //   }
    
-   // TODO
-   // ???
+   // cumulative probability
    double cumP[HYPO_COUNT];
    double last = 0;
-   for(int i = 0; i<= HYPO_COUNT; i++){
+   for(int i = 0; i < HYPO_COUNT; i++){
       last += hypo[1-activeHypo][i].w;
       cumP[i] = last;
    }
    
-   // TODO
-   // vygenerujeme nove bodky a zasumime ich
+   // generate new particle set
    int i;
-   for(i = 0; i < HYPO_COUNT*0.9; i++){
+   for(i = 0; i < HYPO_COUNT*0.9; i++)
+   {
       double next = (double)rand() / (double)RAND_MAX * last;
-      for(int j = 0; j< HYPO_COUNT; j++){
+      for(int j = 0; j < HYPO_COUNT; j++){
          if( next <= cumP[j]){
             hypo[activeHypo][i].x = hypo[1-activeHypo][j].x + generateGaussianNoise(0, 0.03*traveled);
             hypo[activeHypo][i].y = hypo[1-activeHypo][j].y + generateGaussianNoise(0, 0.03*traveled);
-            hypo[activeHypo][i].alpha = normAlpha(hypo[1-activeHypo][j].alpha + generateGaussianNoise(0, heading*0.05));
+            hypo[activeHypo][i].alpha = rad_normAlpha(hypo[1-activeHypo][j].alpha + generateGaussianNoise(0, heading*0.05));
             hypo[activeHypo][i].w = hypo[1-activeHypo][j].w;
             break;
          }
       }
    }
    
-   // generujeme novych nahodnych 10% bodiek
-   for(; i< HYPO_COUNT; i++){
+   // generate random particles
+   for(; i< HYPO_COUNT; i++)
+   {
       
       double rand_x = 0;
       double rand_y = 0;
@@ -462,15 +500,111 @@ int mcl_update(double traveled, int heading, lidar_data_type liddata){
          rand_y = rand() % MAP_H;
       } while (!is_in_corridor(rand_x, rand_y));
       
-      hypo[0][i].x = hypo[1][i].x = rand_x;
-      hypo[0][i].y = hypo[1][i].y = rand_y;
-      hypo[0][i].alpha = hypo[1][i].alpha = rand() % 360;
-      hypo[0][i].w = hypo[1][i].w = 0.01;
+      hypo[activeHypo][i].x = rand_x;
+      hypo[activeHypo][i].y = rand_y;
+      hypo[activeHypo][i].alpha = rand() / (double)RAND_MAX * 2.0 * M_PI;
+      hypo[activeHypo][i].w = 0.01;
       
    }
    
+   pthread_mutex_lock(&lidar_mcl_lock);
+   memcpy(current_hypo, hypo[activeHypo], sizeof(hypo_t) * HYPO_COUNT);
    pthread_mutex_unlock(&lidar_mcl_lock);
    
+   estimate_pose();
+
+   
+   long end_mcl_timestamp = usec_time();
+   mikes_log_val(ML_DEBUG, "mcl time: ", (end_mcl_timestamp - start_mcl_timestamp) / 1000);
    return 0;
 }
 
+
+void *mcl_thread(void *arg)
+{
+	int mcl_update_threshold = 100; //minimal number of ticks to make mcl_update
+	base_data_type base_data;
+	lidar_data_type lidar_data;
+	sleep(3);
+	
+	base_data_type old_base_data;
+	get_base_data(&old_base_data);
+	get_lidar_data(&lidar_data);
+	get_pose(&old_pose);
+
+        int timer_counter = 0;
+
+	// mcl computes in cm
+	while (program_runs)
+	{
+		
+		//printf("mcl: counterA %d counterB %d, heading %d\n", base_data.counterA, base_data.counterB, base_data.heading);
+		
+		if (timer_counter > MCL_UPDATE_MAX_PERIOD) 
+		{
+			mcl_update();
+			timer_counter = 0;
+		}
+		
+		sleep(1);
+		timer_counter++;
+	}
+	
+	mikes_log(ML_INFO, "mcl quits.");
+	threads_running_add(-1);
+	return 0;
+}
+
+int init_mcl()
+{
+   sqrt_2PI = sqrt(2 * M_PI);
+   pthread_t t;
+   if (pthread_create(&t, 0, mcl_thread, 0) != 0)
+   {
+      perror("mikes:mcl");
+      mikes_log(ML_ERR, "creating mcl thread");
+   }
+   else threads_running_add(1);
+
+   pthread_mutex_init(&lidar_mcl_lock, 0);
+   
+   // seed random generator
+   time_t tm;
+   srand((unsigned) time(&tm));
+   
+   // get map
+   get_lines_from_file("mapa_pavilonu_I.svg", lines);
+   get_polygons(poly_i, poly_a, poly_h, lines); 
+      
+   base_data_type base_data;
+   get_base_data(&base_data);
+   double heading = base_data.heading / (double)180 * M_PI;
+   
+   // init primary mcl particles
+   for (int i = 0; i < HYPO_COUNT; i++){
+      
+      double rand_x = 0;
+      double rand_y = 0;
+      
+      do {
+         rand_x = rand() % MAP_W;
+         rand_y = rand() % MAP_H;
+      } while (!is_in_corridor(rand_x, rand_y));
+      
+      
+      hypo[0][i].x = hypo[1][i].x = rand_x;
+      hypo[0][i].y = hypo[1][i].y = rand_y;
+      hypo[0][i].alpha = hypo[1][i].alpha = rand() / (double)RAND_MAX * 2.0 * M_PI;
+      
+      double angle_diff = angle_rad_difference(hypo[0][i].alpha, heading);
+      
+      // incorporationg actual robot heading into primary mcl particles weight
+      hypo[0][i].w = hypo[1][i].w = 0.05 + 0.3 * (M_PI - fabs(angle_diff) / M_PI);
+      
+      //mikes_log_val(ML_INFO, "hypo id: ", i);
+      //mikes_log_double2(ML_INFO, "hypo pos: ", hypo[0][i].x,hypo[0][i].y);
+      //mikes_log_double2(ML_INFO, "hypo v&a: ", hypo[0][i].w,hypo[0][i].alpha);
+   }
+   
+   return 0;
+}

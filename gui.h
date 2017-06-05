@@ -7,6 +7,9 @@
 #include <cairo.h>
 #include <cairo-xlib.h>
 
+extern int mouse_x_click;
+extern int mouse_y_click;
+
 void init_gui();
 
 extern cairo_surface_t *gui_surface;
