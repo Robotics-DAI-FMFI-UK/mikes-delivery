@@ -102,7 +102,7 @@ void *planner_thread(void *arg)
 		
                     pose_type pose;
                     get_pose(&pose);
-                    printf("pose col %d, row %d\n", pose.col, pose.row);
+                    // printf("pose col %d, row %d\n", pose.col, pose.row);
                     mikes_log_val2(ML_DEBUG, "pose col row", pose.col, pose.row);
 
   		    int astar_result = astar(world, STATES_W, STATES_H, pose.col, pose.row, endx, endy, rectilinear);

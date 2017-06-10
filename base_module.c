@@ -159,6 +159,8 @@ void read_base_packet()
                                   &(local_data.dist3), &(local_data.cube), &(local_data.heading ),
                                   &(local_data.ax), &(local_data.ay), &(local_data.az),
                                   &(local_data.gx), &(local_data.gy), &(local_data.gz));
+    
+    //printf("%s\n", line);
     new_base_data_arrived = 1;
     //printf("CA: %ld,  CB: %ld\n", local_data.counterA, local_data.counterB);
     pthread_mutex_unlock(&base_module_lock);
@@ -251,7 +253,7 @@ void regulated_speed(int left_motor, int right_motor)
 
 void *base_module_thread(void *args)
 {
-	int i = 0;
+	//int i = 0;
 	//pose_type pose;
 	
     while (program_runs)

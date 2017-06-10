@@ -191,22 +191,22 @@ void *steering_thread(void *arg)
 			else
 			{
 				int slower_velocity = NORMAL_SPEED * (90 - abs(desired_heading_in_degrees)) / (double)90;
-                                printf("--------------[%f,%f], %f = %f --------------%d\n", pose.x, pose.y, pose.heading, pose.heading / M_PI * 180.0, desired_heading_in_degrees);
+                                //printf("--------------[%f,%f], %f = %f --------------%d\n", pose.x, pose.y, pose.heading, pose.heading / M_PI * 180.0, desired_heading_in_degrees);
 				//	printf("steering: normal speed subtract = %f\n", fabs(desired_heading*180 / M_PI) / NORMAL_SPEED);
 				if (desired_heading < -ANGLE_TOLERANCE_FOR_STRAIGHT_MOVEMENT)
 				{ //turning left
 					set_motor_speeds(slower_velocity, NORMAL_SPEED);
-					printf("steering: turning left:  %d %d\n", slower_velocity, NORMAL_SPEED);
+					//printf("steering: turning left:  %d %d\n", slower_velocity, NORMAL_SPEED);
 				}
 				else if (desired_heading > ANGLE_TOLERANCE_FOR_STRAIGHT_MOVEMENT)
 				{ //turning right
 					set_motor_speeds(NORMAL_SPEED, slower_velocity);
-					printf("steering: turning right: %d %d\n", NORMAL_SPEED, slower_velocity);
+					//printf("steering: turning right: %d %d\n", NORMAL_SPEED, slower_velocity);
 				}
 				else 
 				{ // straight motion
 					set_motor_speeds(NORMAL_SPEED, NORMAL_SPEED);
-					printf("steering: going forward: %d %d\n", NORMAL_SPEED, NORMAL_SPEED);
+					//printf("steering: going forward: %d %d\n", NORMAL_SPEED, NORMAL_SPEED);
 				}
 			}
 			

@@ -6,6 +6,7 @@
 #include "pose.h"
 #include "base_module.h"
 #include "mikes_logs.h"
+#include "util.h"
 
 static double pos_x, pos_y, pos_heading;
 static long old_A = 0, old_B = 0;
@@ -35,11 +36,15 @@ void update_pose(base_data_type *base_data)
     double dA = COUNTER2MM((double)base_data->counterA - old_A) / 10.0;
 	double dB = COUNTER2MM((double)base_data->counterB - old_B) / 10.0;
 	
-	//printf("dA = %.2f, dB = %.2f\n", dA, dB);
+
 	
 	if ((fabs(dA) + fabs(dB) < pos_update_threshold_dist))
 	   return;
 
+	FILE *f = fopen("poses.txt", "a+");
+    fprintf(f, "%f %f %f\t", pos_x, pos_y, pos_heading);
+	fprintf(f, "%.2f %.2f\t", dA, dB);
+	
     old_A = base_data->counterA;
 	old_B = base_data->counterB;
 
@@ -54,34 +59,49 @@ void update_pose(base_data_type *base_data)
 		new_y = pos_y + d * cos(pos_heading);
 		new_heading = pos_heading; 
 		//printf("straight, new=[%.2f, %.2f, %.3f]\n", new_x, new_y, new_heading);
-	}
-	else if (dA * dB < 0)
+		fprintf(f,"s\t");
+        }
+	else if ((dA * dB < 0) && (fabs(fabs(dA) - fabs(dB)) < 0.3))
 	{  // rotating around robot center
 		new_x = pos_x;
 		new_y = pos_y;
-		new_heading = pos_heading + 20.0 * dA / wheels_distance;		
+		new_heading = pos_heading + dA / (2.0 * wheels_distance / 10.0);		
 		//printf("rotate, new=[%.2f, %.2f, %.3f]\n", new_x, new_y, new_heading);
+		fprintf(f,"c\t");
 	}
-	else // moving along circular trajectory
+	else // moving both wheels forward along circular trajectory
 	{
-		double r1 = wheels_distance * dB / (dA - dB) / 10.0;
+                int center_on_the_right = 1;
+                double r1;
+                if (fabs(dB) > fabs(dA))
+                {
+                    center_on_the_right = -1;
+		    r1 = wheels_distance * dA / (dB - dA) / 10.0;
+		    fprintf(f,"l\t");
+                }
+                else
+                {
+		    r1 = wheels_distance * dB / (dA - dB) / 10.0;
+		    fprintf(f,"r\t");
+                }
 		double r = (r1 + wheels_distance / 20.0);
 		double beta = d / r;
-		double Cx = pos_x + r * sin(pos_heading + M_PI / 2.0);
-		double Cy = pos_y + r * cos(pos_heading + M_PI / 2.0);
-		new_x = Cx + r * sin(pos_heading - M_PI / 2.0 + beta);
-		new_y = Cy + r * cos(pos_heading - M_PI / 2.0 + beta);
-		new_heading = pos_heading + beta;
-		//printf("r1=%.3f, beta=%.3f, c=[%.3f,%.3f]\n", r1, beta, Cx, Cy);
+		double Cx = pos_x + r * sin(pos_heading + center_on_the_right * M_PI / 2.0);
+		double Cy = pos_y + r * cos(pos_heading + center_on_the_right * M_PI / 2.0);
+		new_x = Cx + r * sin(pos_heading - center_on_the_right * M_PI / 2.0 + center_on_the_right * beta);
+		new_y = Cy + r * cos(pos_heading - center_on_the_right * M_PI / 2.0 + center_on_the_right * beta);
+		new_heading = pos_heading + center_on_the_right * beta;
+		fprintf(f, " <r1=%.3f, beta=%.3f, c=[%.3f,%.3f]>\t", r1, beta, Cx, Cy);
 		//printf("circle, new=[%.2f, %.2f, %.3f]\n", new_x, new_y, new_heading);
 	}
 	
     pthread_mutex_lock(&pose_module_lock);
 	    pos_x = new_x;
 		pos_y = new_y;
-	    pos_heading = new_heading;
+	    pos_heading = rad_normAlpha(new_heading);
     pthread_mutex_unlock(&pose_module_lock);
-    //printf("x %f y %f heading %f\n", pos_x, pos_y, pos_heading);
+    fprintf(f, "%f %f %f\n", pos_x, pos_y, pos_heading);
+    fclose(f);
 }
 
 void get_pose(pose_type *pose)

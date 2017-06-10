@@ -33,7 +33,7 @@ void path_unlock()
 
 int astar(int *map, int map_w, int map_h, int startcol, int startrow, int goalcol, int goalrow, int (distance)(int, int, int, int))
 {
-        printf("astar from: %d\n", map[startrow * map_w + startcol]);
+        //printf("astar from: %d\n", map[startrow * map_w + startcol]);
 	int arrived_from[map_h][map_w][2];
 	for (int i = 0; i < map_h; ++i)
 		for (int j = 0; j < map_w; ++j)
