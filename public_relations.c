@@ -10,7 +10,7 @@
 void report_status_to_server()
 {
   system("ifconfig > /tmp/kocurmikes.ifconfig.txt");
-  system("scp -q /tmp/kocurmikes.ifconfig.txt petrovic@kempelen.ii.fmph.uniba.sk:kocurmikes >/dev/null");
+  system("scp -q /tmp/kocurmikes.ifconfig.txt petrovic@kempelen.ii.fmph.uniba.sk:kocurmikes >/dev/null 2>/dev/null");
   system("sudo rm -f /tmp/kocurmikes.ifconfig.txt");
 }
 
