@@ -16,6 +16,7 @@
 #include "mcl.h"
 #include "pose.h"
 #include "planner.h"
+#include "util.h"
 
 volatile unsigned char program_runs;
 static pthread_mutex_t mikes_lock;
@@ -36,6 +37,17 @@ void signal_term_handler(int signum)
   program_runs = 0;
 }
 
+void say_greeting()
+{
+  say("Hello");
+  sleep(1);
+  say("my name is");
+  sleep(1);
+  say("me cash.");
+  sleep(1);
+  say("How do you do?");
+}
+
 int main(int argc, char **argv)
 {
   program_runs = 1;
@@ -49,6 +61,7 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "autostart") == 0) return 0;
 
   init_mikes_logs();
+  say_greeting();
   init_public_relations();
   init_pose(1, MAP_H);
   init_base_module();
