@@ -13,12 +13,13 @@ SRCS=mikes.c \
      config_mikes.c \
      base_module.c \
      util.c \
+     tim571.c \
      ncurses_control.c \
      pq.c \
      astar.c \
      pose.c \
      ride.c
-OPTIMIZE=-O3
+OPTIMIZE=-O0 -g
 CPPSRCS=lidar.cpp
 OBJS=${SRCS:.c=.o}
 CPPOBJS=${CPPSRCS:.cpp=.o}

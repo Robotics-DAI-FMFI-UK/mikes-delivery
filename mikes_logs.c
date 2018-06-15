@@ -87,6 +87,22 @@ void mikes_log(unsigned int log_type, char *log_msg)
     printf("%s: %s\n", log_type_str[log_type], log_msg);
 }
 
+void mikes_log_str(unsigned int log_type, char *log_msg, char *log_msg2)
+{
+  if ((log_type == ML_DEBUG) && !mikes_config.print_debug_logs) return;
+  long run_time = get_run_time();
+
+  FILE *f = try_opening_log(log_type);
+  if (f)
+  {
+      fprintf(f, "%05ld.%02d %s: %s%s\n", run_time / 100L, (int)(run_time % 100), log_type_str[log_type], log_msg, log_msg2);
+      fclose(f);
+  }
+
+  if (mikes_config.print_all_logs_to_console)
+    printf("%s: %s%s\n", log_type_str[log_type], log_msg, log_msg2);
+}
+
 void mikes_log_val2(unsigned int log_type, char *log_msg, int val, int val2)
 {
   if ((log_type == ML_DEBUG) && !mikes_config.print_debug_logs) return;

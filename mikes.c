@@ -17,6 +17,7 @@
 #include "pose.h"
 #include "planner.h"
 #include "util.h"
+#include "tim571.h"
 
 volatile unsigned char program_runs;
 static pthread_mutex_t mikes_lock;
@@ -67,6 +68,7 @@ int main(int argc, char **argv)
   init_base_module();
   init_astar();
   init_lidar();
+  init_tim571();
   init_mcl();
   init_planner();
   init_steering();
@@ -77,6 +79,7 @@ int main(int argc, char **argv)
   while (program_runs)
   {
      sleep(1);
+     test_tim571();
   }
 
   int old_tr = threads_running + 1;
