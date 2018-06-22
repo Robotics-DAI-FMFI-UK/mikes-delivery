@@ -322,8 +322,8 @@ void process_sentence()
     memcpy(local_data, tim571_data, sizeof(uint16_t) * TIM571_DATA_COUNT);
     memcpy(local_rssi, tim571_rssi_data, sizeof(uint8_t) * TIM571_DATA_COUNT);
 
-	pthread_mutex_unlock(&tim571_lock);
 	if (status_data_requested) status_data_available = 1;
+	pthread_mutex_unlock(&tim571_lock);
 }
 
 void *tim571_thread(void *args)
